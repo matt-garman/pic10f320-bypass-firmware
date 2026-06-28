@@ -22,20 +22,22 @@ This is intentionally the **lower-tier, best-effort, one-off** sibling of the
   hardware directly.
 - Current footprint: **206 / 256 words flash (80.5%)**, 10 / 64 bytes RAM.
 
-**Validation:** because the firmware inlines its logic, it is validated in two
+**Validation:** because the firmware inlines its logic, it is validated in
 layers (see `test/README.md`): the parent's pure debounce core is vendored as a
 **reference model** and run through the full host + formal suite (unit/property/
-fuzz, exhaustive state-space, symbolic, and CBMC), and the **real firmware** is
-then proven behaviorally identical to that model — tick-for-tick over exhaustive
-+ random stimulus on the host, and on a simulated core in gpsim. Static analysis
-(cppcheck + MISRA-C:2012, zero deviations), CONFIG-word verification, mutation
-testing, and a model-coverage gate round it out. `make test` runs all of it.
+fuzz, exhaustive state-space, symbolic, and CBMC); the **real firmware** is then
+proven behaviorally identical to that model — tick-for-tick over exhaustive +
+random stimulus on the host, and on a simulated core in gpsim; and the real
+firmware's **defensive layer** (the SEU/EMI sanity gate and watchdog-reset path,
+which valid stimulus never reaches) is exercised by a host **fault-injection**
+harness. Static analysis (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
+verification, mutation testing, and model + firmware coverage gates round it out.
+`make test` runs all of it.
 
-**Still lower-tier:** the gaps that remain are real — no host unit test targets
-the firmware's own translation unit directly (only the model + the equivalence
-proof), and WDT-timing / brown-out *behaviour* is not simulated (gpsim's WDT
-calibration differs from silicon and it has no analog BOR model); the CONFIG
-check proves those features are enabled, not their real-time timing.
+**Still lower-tier:** the gaps that remain are real — WDT-timing / brown-out
+*behaviour* is not simulated (gpsim's WDT calibration differs from silicon and it
+has no analog BOR model); the CONFIG check proves those features are enabled, not
+their real-time timing.
 
 **When to use which:** use this firmware when the PIC10F320 is a hard
 requirement. When you can choose the part, prefer the parent project's

@@ -16,6 +16,13 @@ To get as close to the parent as possible anyway, validation here is built in
    model, tick for tick, by running the actual compiled firmware logic on the
    host (`equiv/`) and in gpsim. So the model's host/formal guarantees transfer
    to the shipping code, and the firmware is never validated only "by assertion."
+3. **Fault injection** (`fault/`): the model is hardware-free, so it has no
+   notion of the firmware's *defensive* layer — the per-tick SEU/EMI sanity gate,
+   the pull-up / output-pin checks, and `hw_force_wdt_reset()`. Valid stimulus
+   never trips those, so the equivalence layer can't reach them. This layer runs
+   the real firmware on the host and *injects* corrupted state to prove the fault
+   path fires (and that valid states don't). It also backs the **firmware**
+   coverage gate.
 
 Everything runs from the top-level `Makefile`; each target skips cleanly
 (exit 0) when its tool is absent.
@@ -33,8 +40,10 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* produces the model's exact LED/CD4053 trace over 262k exhaustive + thousands of random stimuli. | host `gcc` |
+| **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320 (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
+| Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
 
 `make test` runs all of the above in order. `make test-formal` runs just the
 three formal engines; `make test-mutation` (below) is separate.
@@ -55,6 +64,35 @@ It also **auto-guards against threshold drift**: the firmware defines its
 (`model/bypass_config.h`); if they ever disagree, the traces diverge and this
 test fails. (Verified with a deliberate-mismatch negative control.)
 
+## The fault-injection test (`fault/`)
+
+The equivalence test only ever presents *valid* footswitch stimulus, so the
+firmware's defensive layer — the per-tick SEU/EMI sanity gate in `main()`, the
+`hw_footswitch_pullup_intact()` / `hw_is_sanity_check_failed()` checks, and
+`hw_force_wdt_reset()` — is never reached by it (a check that only fires on
+*corrupted* state is invisible to valid stimulus). Mutation testing confirmed the
+gap: that whole layer could be disabled and the rest of the suite stayed green.
+
+`fault/fw_fault_harness.c` reuses the equivalence mock `<xc.h>` and `#include`s
+the real firmware, so it can drive `main()` and corrupt the firmware's live state
+between ticks. `test_fault.c` then asserts:
+
+- **predicate probes** — the static sanity predicates return the right verdict
+  for both good and SEU-corrupted SFRs (e.g. a `TRISA` bit flipped from output to
+  input, a cleared `WPUA` latch, `nWPUEN` set);
+- **fault injection** — after one clean iteration, an out-of-range
+  `program_state`/`effect_state` or a critical-SFR flip makes the next iteration
+  force a watchdog reset, while valid states (including a valid ENGAGED state) do
+  *not*.
+
+Observing the reset is the trick: `hw_force_wdt_reset()` clears `GIE` and spins
+forever (on silicon the watchdog then resets the MCU). The harness arms a short
+real-time timer; if the firmware enters that spin, a `SIGALRM` handler
+`siglongjmp()`s back out — so "the run had to be timed out" *is* the
+reset-fired signal (robust at any optimisation level, since the firmware's only
+spin point is that function). This layer also drives the firmware's normal
+toggle lines, so it backs the `coverage-check-fw` gate.
+
 ## gpsim functional scenarios
 
 The closest thing to real silicon: the actual instruction stream, asserting
@@ -69,10 +107,11 @@ register state at settled checkpoints. Pins: RA3 = footswitch (1=released,
 ## Mutation testing (`make test-mutation`)
 
 Confirms the suite has teeth: it injects deliberate faults into the firmware and
-the model on a throwaway copy and checks each is detected. Firmware mutants are
-killed by `test-equiv` / `test-gpsim`; model mutants by `test-host` /
-`test-model-check`. Not part of `make test` (it rebuilds per mutant). Currently
-15 mutants, all killed.
+the model on a throwaway copy and checks each is detected. Firmware logic mutants
+are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
+(e.g. a neutered pull-up or output-pin check) by `test-fault`; model mutants by
+`test-host` / `test-model-check`. Not part of `make test` (it rebuilds per
+mutant). Currently 18 mutants, all killed.
 
 ## Why CONFIG-word verification matters
 

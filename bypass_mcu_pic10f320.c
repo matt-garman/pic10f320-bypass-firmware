@@ -101,7 +101,7 @@ static_assert(LED_PIN     == _PORTA_RA0_POSN, "LED_PIN must be RA0");
 static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
 
 // _XTAL_FREQ (a build flag, used by the drivers' __delay_ms) must match the
-// 16MHz HFINTOSC selected in hw_mcu_init(), or the coil/mute pulse widths
+// 16MHz HFINTOSC selected in init(), or the coil/mute pulse widths
 // would be wrong.
 static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCCON IRCF)");
 
@@ -259,7 +259,7 @@ static void init(void) {
     // creating a short post-reset reset-loop hazard -- the PIC has no such
     // window: WDTE=ON runs the WDT from reset at its ~2s POR-default prescale
     // (1:65536 on the 31kHz LFINTOSC; confirm WDTCON's reset value in
-    // DS40001585), which dwarfs init() + the <=12ms bypass pulse. hw_mcu_init()
+    // DS40001585), which dwarfs init() + the <=12ms bypass pulse. init()
     // narrows the period to ~256ms afterward (WDTPS=0x08). This early pet is
     // therefore belt-and-suspenders, not required -- it documents why no early
     // arming is needed and costs one instruction.
@@ -271,7 +271,7 @@ static void init(void) {
     // other pins are left as inputs (TRISA bit = 1). The selected pins are made
     // digital (ANSELA bit = 0) and driven low (LATA bit = 0). RA3 is input-only and
     // always remains an input (its TRISA bit reads 1).
-    ANSELA &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> digital
+    //ANSELA &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> digital
     LATA   &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> low
     TRISA   = (uint8_t)((uint8_t)~BYPASS_OUTPUT_DDR_MASK & 0x0FU);  // mask pins = output, rest = input
 
@@ -279,10 +279,11 @@ static void init(void) {
 
     // core MCU bring-up: 16MHz HFINTOSC, all-digital port, the footswitch weak
     // pull-up, the global weak-pull-up enable, and the ~256ms watchdog period.
-    // Does NOT start the tick timer (see hw_tick_timer_start()).
+    // Does NOT start the tick timer (see below).
     //
-    // Ordering: call AFTER hw_init_output_pins() so the ANSELA/pull-up writes here
-    // do not disturb the output-pin direction setup.
+    // Ordering: call AFTER output pins are configured (above) so the
+    // ANSELA/pull-up writes here do not disturb the output-pin direction
+    // setup.
     //
     // HFINTOSC = 16 MHz (IRCF = 0b111). Must match _XTAL_FREQ (asserted below),
     // which the relay/mute drivers' __delay_ms() relies on.
@@ -317,7 +318,7 @@ static void init(void) {
     ctx_.debounce_counter = 0U;
 
     // special case: footswitch pressed during power-on: keep in bypass state,
-    // but use timer + interrupt function to wait for release
+    // but use timer + footswitch polling to wait for release
     if (PIN_STATE_LOW == hw_read_footswitch()) {
         ctx_.program_state = RELEASE_DEBOUNCE_WAIT;
         ctx_.debounce_counter = RELEASE_THRESH;

@@ -37,6 +37,13 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@#define RELEASE_THRESH  (25U)@#define RELEASE_THRESH  (15U)@	test-equiv	FW release lock-out shortened 25->15 (diverges from the model)"
 # --- firmware: power-on init (killed by equivalence: power-on-pressed sequences) ---
 "bypass_mcu_pic10f320.c	s@ctx_.program_state = RELEASE_DEBOUNCE_WAIT;@ctx_.program_state = PRESS_DEBOUNCE_WAIT;@	test-equiv	FW power-on-pressed: wrong program_state (held switch could spuriously engage)"
+# --- firmware: defensive / fault-detection layer (killed by the fault harness) -----
+# These mutants WEAKEN a runtime sanity check so a real fault would go undetected.
+# They are invisible to test-equiv/test-gpsim (valid stimulus never trips the
+# check); only test-fault, which injects corrupted state, kills them.
+"bypass_mcu_pic10f320.c	s@return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);@return 0U;@	test-fault	FW output-pin SEU check neutered (lost LED/CD4053 output never detected)"
+"bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
+"bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
 # --- firmware: GPIO / footswitch wiring (killed by gpsim register checks) ---------
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	test-gpsim	FW CD4053 control routed the wrong way (RA1 stuck low); ENGAGED LATA!=0x3"
@@ -64,7 +71,7 @@ copy_tree() {
 echo "=== mutation testing: baseline sanity check ==="
 BASE="$(mktemp -d)"; copy_tree "$BASE"
 base_fail=0
-for t in test-host test-model-check test-equiv; do
+for t in test-host test-model-check test-equiv test-fault; do
     if make -C "$BASE" "$t" >/dev/null 2>&1; then
         echo "baseline $t: PASS"
     else

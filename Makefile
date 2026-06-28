@@ -124,10 +124,21 @@ CBMC_DEEP_UNWIND     := 257
 COVERAGE_DIR ?= coverage
 COVERAGE_MIN ?= 95
 
+# Firmware fault-injection harness (test/fault): runs the REAL firmware on the
+# host and exercises its defensive / fault-detection paths -- the per-tick SEU/EMI
+# sanity gate, the pull-up / output-pin checks, and hw_force_wdt_reset() -- which
+# the equivalence test (valid stimulus only) never reaches. The harness #includes
+# the firmware (-Dmain=fw_main) and uses the same mock <xc.h> as test/equiv.
+FAULT_HARNESS  := test/fault/fw_fault_harness.c
+FAULT_DRIVER   := test/fault/test_fault.c
+FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL)
+FAULT_INC      := -Itest/equiv -Itest/fault
+
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-cbmc test-equiv \
-        test-mutation coverage coverage-check coverage-clean clean
+        test-fault test-mutation coverage coverage-check coverage-check-fw \
+        coverage-clean clean
 
 # Build + enforce the flash-word budget. XC8 scatters intermediates
 # (startup.*, *.p1, *.d, .elf/.cmf/.hxl/.sym/.sdb) into its working directory,
@@ -301,6 +312,22 @@ test-equiv:
 		-o $(BUILD_DIR)/test_equiv
 	@$(BUILD_DIR)/test_equiv
 
+# --- firmware fault-injection / defensive-path tests -------------------------
+# Run the REAL firmware on the host and prove its fault-detection layer works:
+# the per-tick SEU/EMI sanity gate forces a watchdog reset on a corrupted state
+# or critical-SFR flip (and valid states do NOT), and the static sanity
+# predicates return the right verdict for good and corrupted SFRs. This reaches
+# the code the equivalence test (valid stimulus only) cannot. Two TUs, mirroring
+# test-equiv: the harness (relaxed flags, -Dmain=fw_main, includes the firmware)
+# and our strict driver.
+test-fault:
+	@mkdir -p $(BUILD_DIR)
+	@$(HOST_CC) -std=c11 -O2 $(FAULT_FW_DEFS) $(FAULT_INC) \
+		-c $(FAULT_HARNESS) -o $(BUILD_DIR)/fw_fault_harness.o
+	@$(HOST_CC) $(HOST_CFLAGS) $(FAULT_INC) -c $(FAULT_DRIVER) -o $(BUILD_DIR)/test_fault_drv.o
+	@$(HOST_CC) $(BUILD_DIR)/fw_fault_harness.o $(BUILD_DIR)/test_fault_drv.o -o $(BUILD_DIR)/test_fault
+	@$(BUILD_DIR)/test_fault
+
 # --- coverage (of the vendored model) ----------------------------------------
 # Coverage is accumulated ACROSS the host unit tests AND the two exhaustive
 # formal tests: the model is compiled once into a single instrumented object
@@ -341,8 +368,30 @@ coverage-check:
 			|| { echo "FAIL: coverage $$pct% below floor $(COVERAGE_MIN)%"; exit 1; }; \
 	fi
 
+# Firmware coverage GATE (wired into `make test`): unlike the model gate above
+# (a percentage floor), this asserts every line of the SHIPPING firmware
+# (bypass_mcu_pic10f320.c) is exercised on the host EXCEPT the allow-listed
+# watchdog-reset fault path -- see test/fault/check_fw_coverage.sh for why those
+# lines are uncoverable here. The fault harness #includes the firmware, so
+# instrumenting it measures the real TU. gcov runs from the repo root so the
+# #included firmware source resolves for line annotation.
+coverage-check-fw:
+	@mkdir -p $(COVERAGE_DIR)
+	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_FW_DEFS) $(FAULT_INC) \
+		-c $(FAULT_HARNESS) -o $(COVERAGE_DIR)/fw_fault_cov.o
+	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_INC) \
+		-c $(FAULT_DRIVER) -o $(COVERAGE_DIR)/test_fault_cov_drv.o
+	@$(HOST_CC) --coverage $(COVERAGE_DIR)/fw_fault_cov.o $(COVERAGE_DIR)/test_fault_cov_drv.o \
+		-o $(COVERAGE_DIR)/test_fault_cov
+	@$(COVERAGE_DIR)/test_fault_cov >/dev/null
+	@gcov -o $(COVERAGE_DIR) $(COVERAGE_DIR)/fw_fault_cov.o >/dev/null 2>&1 || true
+	@echo "firmware line coverage (fault + happy-path harness):"
+	@test/fault/check_fw_coverage.sh bypass_mcu_pic10f320.c.gcov; rc=$$?; \
+		rm -f *.gcov; exit $$rc
+
 coverage-clean:
 	rm -rf $(COVERAGE_DIR)
+	rm -f *.gcov
 	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
 # --- mutation testing --------------------------------------------------------
@@ -352,10 +401,11 @@ test-mutation:
 	./test/run_mutation_tests.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-gpsim coverage-check
+test: all analyze test-config test-host test-formal test-equiv test-fault test-gpsim \
+      coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete ==="
 
 clean:
 	rm -rf $(BUILD_DIR) $(COVERAGE_DIR)
-	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list*
+	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list* *.gcov
 	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
