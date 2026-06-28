@@ -29,8 +29,27 @@
 #define FOOTSW_PIN      (3U) // RA3 (input-only) + weak pull-up
 #define LED_PIN         (0U) // RA0
 
+
+// PIC10F320 pin map: PORTA/TRISA/LATA bit positions. The PIC10F320 has four
+// GPIO pins: RA0, RA1, RA2 are bidirectional, and RA3 is INPUT-ONLY (it
+// shares MCLR/VPP; with MCLRE=OFF it is a plain digital input). So the
+// footswitch (an input) goes on RA3, freeing RA0-RA2 as the three outputs.
+//
+// footswitch and status LED pins are common across all output variants
+#define FOOTSW_PIN      (3U) // RA3 (input-only) + weak pull-up
+#define LED_PIN         (0U) // RA0
+
 // CD4053 simple
 #define CD4053_PIN      (1U) // RA1
+
+// CD4053 with muting
+#define CD4053_CTL1     (1U) // RA1
+#define CD4053_CTL2     (2U) // RA2
+
+// dual-latching mechanical relay bypass (e.g. Panasonic TQ2-2L)
+#define RELAY_RESET_PIN (1U) // RA1
+#define RELAY_SET_PIN   (2U) // RA2
+
 
 // Bits that must be OUTPUTS (RA0|RA1|RA2). Same macro NAME as the AVR map (the
 // shared drivers consume it); the value is the output-bit set, interpreted by
@@ -41,7 +60,6 @@
 // mute = LED(RA0)/CTL1(RA1)/CTL2(RA2); cd4053-simple = LED(RA0)/CD4053(RA1),
 // leaving RA2 a spare driven low. Mask 0x07 for all.
 #define BYPASS_OUTPUT_DDR_MASK (0x07U)  // RA0|RA1|RA2
-
 
 
 
@@ -95,7 +113,6 @@ static_assert(PRESSED_THRESH > 0U,                   "PRESSED_THRESH <= 0");
 // pin-map sanity: the PIC pin map hard-codes PORTA bit positions as literals
 // (0U,1U,2U,3U). Pin them at compile time against the DFP's _PORTA_RAx_POSN
 // so a typo in the map or a DFP change can never silently misroute a pin
-// (parity with the AVR shell's PBx asserts).
 static_assert(FOOTSW_PIN  == _PORTA_RA3_POSN, "FOOTSW_PIN must be RA3");
 static_assert(LED_PIN     == _PORTA_RA0_POSN, "LED_PIN must be RA0");
 static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
@@ -173,11 +190,19 @@ static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
 }
 
 
+//#define OUTPUT_CD4053_SIMPLE (1)
+//#define OUTPUT_CD4053_WITH_MUTE (1)
+//#define OUTPUT_TQ2_RELAY (1)
+
+
+//////////////////////////////////////////////////////////////////////////////
+// OUTPUT VARIANT: CD4053 SIMPLE
+#if defined(OUTPUT_CD4053_SIMPLE)
+
 // assert critical pin directions hold: LED & CD4053 outputs, footswitch input
 static uint8_t hw_is_sanity_check_failed(void) {
     return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);
 }
-
 
 // CD4053_PIN high -> mosfet on  -> 4053 control pins low
 // CD4053_PIN low  -> mosfet off -> 4053 control pins high
@@ -190,6 +215,112 @@ static void hw_set_engaged_state(void) {
     hw_led_pin_set_high();       // light status LED
     hw_pin_set_high(CD4053_PIN); // set CD4053 pin high
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// OUTPUT VARIANT: CD4053 WITH MUTING
+#elif defined(OUTPUT_CD4053_WITH_MUTE)
+
+// how long to mute the effect before switching between effect/bypass
+#  define CD4053_MUTE_DELAY_MS (5U)
+
+static uint8_t hw_is_sanity_check_failed(void) {
+
+    static_assert(CD4053_MUTE_DELAY_MS < RELEASE_THRESH,
+            "CD4053 mute delay must be shorter than the release-lockout window, "
+            "or the re-arm point can be missed during the blocking actuation");
+
+    return (0U == hw_output_pins_intact((1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2)));
+}
+
+// See "Improved Scheme With Muting" in parent project (mcu-bypass-firmware)
+// DESIGN_DOCUMENTATION.adoc
+//
+// NOTE: both set_bypass and set_engaged claim a re-assertion of the state
+//       from which we're switching.  Note that "re-assertion" is not
+//       technically true for the set_bypass function at startup (or after a
+//       RESET) - this is because the hardware design intent is to default to
+//       bypass state at power-on.  In effect, at power-on, the following
+//       happens:
+//          - the effect state is bypass due to hardware wiring
+//          - the MCU boots, and immediately calls hw_set_bypass_state()
+//          - the engaged state is "re-asserted": in this specific case, it
+//            actually flips to engaged, then...
+//          - immediately flips to bypass
+//
+static void hw_set_bypass_state(void) {
+    hw_pin_set_high(CD4053_CTL1); // re-assert previous ENGAGED state
+    hw_pin_set_high(CD4053_CTL2);
+
+    hw_led_pin_set_low(); // dark status LED
+
+    hw_pin_set_low(CD4053_CTL1); // MUTE
+    __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
+
+    hw_pin_set_low(CD4053_CTL2); // un-mute in BYPASS state
+}
+
+static void hw_set_engaged_state(void) {
+    hw_pin_set_low(CD4053_CTL1); // re-assert previous BYPASS state
+    hw_pin_set_low(CD4053_CTL2);
+
+    hw_led_pin_set_high(); // light status LED
+
+    hw_pin_set_high(CD4053_CTL2); // MUTE
+    __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
+
+    hw_pin_set_high(CD4053_CTL1); // un-mute in ENGAGED state
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// OUTPUT VARIANT: TQ2-L2-5V MECHANICAL RELAY
+#elif defined(OUTPUT_TQ2_RELAY)
+
+// Panasonic TQ-L2-5V specifies a 4ms minimum current pulse for the set/reset
+// coils; multiple by a factor of three for a safety margin
+#  define TQ2_L2_5V_PULSE_MS (12U) 
+
+static uint8_t hw_is_sanity_check_failed(void) {
+
+    static_assert(TQ2_L2_5V_PULSE_MS < RELEASE_THRESH,
+            "relay coil pulse must be shorter than the release-lockout window, "
+            "or the re-arm point can be missed during the blocking actuation");
+
+    return (0U == hw_output_pins_intact((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN)));
+}
+
+// force both coils low
+static void set_relay_coils_low(void) {
+    hw_pin_set_low(RELAY_RESET_PIN);
+    hw_pin_set_low(RELAY_SET_PIN);
+}
+
+static void hw_set_bypass_state(void) {
+    set_relay_coils_low();
+
+    hw_led_pin_set_low();        // dark status LED
+
+    hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil
+    __delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
+
+    set_relay_coils_low();
+}
+
+static void hw_set_engaged_state(void) {
+    set_relay_coils_low();
+
+    hw_led_pin_set_high();       // light status LED
+
+    hw_pin_set_high(RELAY_SET_PIN);   // pulse set coil
+    __delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
+
+    set_relay_coils_low();
+}
+
+#else
+#  error "OUTPUT not defined
+#endif
+
+
 
 
 
@@ -219,9 +350,7 @@ static pin_state_t hw_read_footswitch(void) {
 // non-zero IFF the footswitch weak pull-up is genuinely active. The PIC weak
 // pull-up has a TWO-part enable: the per-pin WPUA latch AND the global,
 // active-low OPTION_REG.nWPUEN. An SEU/EMI flip of EITHER silently disables the
-// pull-up, so both are checked. (The AVR analogue checks the single PORTB latch
-// bit that IS its pull-up enable; checking both here restores SEU-detection
-// parity under the project's cosmic-ray/EMI threat model.)
+// pull-up, so both are checked.
 //
 // The two volatile SFRs are read into locals first so the && combines two plain
 // (non-volatile) booleans: this keeps MISRA Rule 13.5 clean (no persistent side
@@ -239,10 +368,7 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 // PROGRAM GLOBALS
 //////////////////////////////////////////////////////////////////////////////
 
-// overall debounce context. Unlike the AVR shell this need NOT be volatile or
-// file-static for ISR sharing -- the PIC shell has no ISR; the single main loop
-// is the sole owner. Kept at file scope (off main()'s stack) for parity with
-// the AVR shell's resource-budget story.
+// Overall debounce context.
 static debounce_context_t ctx_;
 
 
