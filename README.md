@@ -22,10 +22,20 @@ This is intentionally the **lower-tier, best-effort, one-off** sibling of the
   hardware directly.
 - Current footprint: **206 / 256 words flash (80.5%)**, 10 / 64 bytes RAM.
 
-**Consequence:** because there is no pure unit here, the parent's host
-(`test/host`) and formal (`test/formal`) verification do **not** cover this
-binary. Functional validation for this project is register-level only (gpsim),
-plus the CONFIG-word and soak checks.
+**Validation:** because the firmware inlines its logic, it is validated in two
+layers (see `test/README.md`): the parent's pure debounce core is vendored as a
+**reference model** and run through the full host + formal suite (unit/property/
+fuzz, exhaustive state-space, symbolic, and CBMC), and the **real firmware** is
+then proven behaviorally identical to that model — tick-for-tick over exhaustive
++ random stimulus on the host, and on a simulated core in gpsim. Static analysis
+(cppcheck + MISRA-C:2012, zero deviations), CONFIG-word verification, mutation
+testing, and a model-coverage gate round it out. `make test` runs all of it.
+
+**Still lower-tier:** the gaps that remain are real — no host unit test targets
+the firmware's own translation unit directly (only the model + the equivalence
+proof), and WDT-timing / brown-out *behaviour* is not simulated (gpsim's WDT
+calibration differs from silicon and it has no analog BOR model); the CONFIG
+check proves those features are enabled, not their real-time timing.
 
 **When to use which:** use this firmware when the PIC10F320 is a hard
 requirement. When you can choose the part, prefer the parent project's

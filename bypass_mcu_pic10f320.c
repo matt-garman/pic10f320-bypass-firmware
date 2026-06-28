@@ -2,6 +2,17 @@
 // Licensed under the MIT License. See LICENSE in the project root for
 // license information.
 
+
+//
+// PIC10F320 DIP-8 Pinout
+//                                                     +----+
+//                                            N/C pin1-|    |-pin8 RA3 (~MCLR/V_PP)
+//                                           V_DD pin2-|    |-pin7 V_SS (GND)
+// (INT/T0CKI/NCO1/CLC1IN1/CLKR/AN2/~CWG1FLT) RA2 pin3-|    |-pin6 N/C
+//(PWM2/CLC1/CWG1B/AN1/CLKIN/ICSPCLK/NCO1CLK) RA1 pin4-|    |-pin5 RA0 (PWM1/CLC1IN0/CWG1A/AN0/ICSPDAT)
+//                                                     +----+
+//
+
 #include <xc.h> // device SFRs, CLRWDT(), __delay_ms()
 
 #include <assert.h>
@@ -164,7 +175,7 @@ static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
 
 // assert critical pin directions hold: LED & CD4053 outputs, footswitch input
 static uint8_t hw_is_sanity_check_failed(void) {
-    return (hw_output_pins_intact((1 << LED_PIN) | (1 << CD4053_PIN)) == 0U);
+    return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);
 }
 
 
