@@ -4,10 +4,13 @@ Scaled-down, single-file bypass/debounce firmware for the **PIC10F320**,
 supporting the **CD4053-simple** output only. It responds to a footswitch,
 debounces it, toggles effect bypass/engage, and drives a status LED.
 
+
 ## Project tier
 
-This is intentionally the **lower-tier, best-effort, one-off** sibling of the
-`mcu-bypass-firmware` project. Read that distinction literally:
+This is intentionally the **lower-tier, best-effort, one-off**
+sibling of the
+[mcu-bypass-firmware](https://https://github.com/matt-garman/mcu-bypass-firmware)
+project. Read that distinction literally:
 
 - The parent is the textbook-grade, fully-validated reference firmware (AVR
   classic + ATtinyx5 + PIC10F322). Its design is built around a *pure*,
@@ -41,7 +44,8 @@ their real-time timing.
 
 **When to use which:** use this firmware when the PIC10F320 is a hard
 requirement. When you can choose the part, prefer the parent project's
-PIC10F322 build for maximum assurance.
+PIC10F322 or AVR Classic build for maximum assurance.
+
 
 ## Provenance
 
@@ -55,6 +59,7 @@ merely re-packaged (inlined, global-mutating) to fit flash.
   verification; it is *not* independently re-proven in this repository.
 - This is a **frozen one-off**. It is *not* automatically kept in sync with
   the parent; the parent may advance without this project following.
+
 
 ## Manual-sync contract
 
@@ -72,6 +77,7 @@ shared at the source level:
 
 The pin map (RA3 footswitch, RA0 LED, RA1 CD4053) and the CONFIG word are
 PIC-local and are *not* shared with the parent.
+
 
 ## Build
 
