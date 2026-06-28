@@ -9,7 +9,7 @@ debounces it, toggles effect bypass/engage, and drives a status LED.
 
 This is intentionally the **lower-tier, best-effort, one-off**
 sibling of the
-[mcu-bypass-firmware](https://https://github.com/matt-garman/mcu-bypass-firmware)
+[mcu-bypass-firmware](https://github.com/matt-garman/mcu-bypass-firmware)
 project. Read that distinction literally:
 
 - The parent is the textbook-grade, fully-validated reference firmware (AVR
