@@ -2,27 +2,28 @@
 
 [![CI](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml/badge.svg)](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml)
 
-Scaled-down, single-file bypass/debounce firmware for the **PIC10F320**,
-supporting all three of the parent project's output stages — **CD4053-simple**,
-**CD4053-with-mute**, and the **TQ2 latching relay** — selected at compile time
-with one `OUTPUT_*` macro (see the Build section). It responds to a footswitch,
-debounces it, toggles effect bypass/engage, and drives a status LED.
+Scaled-down, single-file bypass/debounce firmware for the
+**PIC10F320**, supporting all three of the parent project's output
+stages: **CD4053-simple**, **CD4053-with-mute**, and the **TQ2
+latching relay**.  Output scheme is selected at compile time with
+one `OUTPUT_*` macro (see the Build section). It responds to a
+footswitch, debounces it, toggles effect bypass/engage, and drives a
+status LED.
 
 
 ## Project tier
 
-This is intentionally the **lower-tier, best-effort, one-off**
-sibling of the
+This is intentionally a separate child project of
 [mcu-bypass-firmware](https://github.com/matt-garman/mcu-bypass-firmware)
-project. Read that distinction literally:
+project.
 
 - The parent is the textbook-grade, fully-validated reference firmware (AVR
-  classic + ATtinyx5 + PIC10F322). Its design is built around a *pure*,
+  Classic and PIC10F322). Its design is built around a *pure*,
   host- and formally-verified debounce core (`bypass_pure.c`): the algorithm
   is written as side-effect-free functions returning result structs, which is
   what makes it unit- and model-checkable on a host.
-- The PIC10F320 has only **256 words of program flash** — half the
-  PIC10F322's 512. Fitting the parent's pure/result-struct architecture into
+- The PIC10F320 is a smaller device with only **256 words of program flash** (half the
+  PIC10F322's 512). Fitting the parent's pure/result-struct architecture into
   that budget required too many compromises to its reliability goals, so this
   project deliberately trades that architecture away: the debounce logic is
   **inlined into `main()`**, mutating a file-global context and driving the
@@ -31,24 +32,29 @@ project. Read that distinction literally:
   **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
   **tq2-relay 233 (91.0%)**; 10–11 / 64 bytes RAM.
 
-**Validation:** because the firmware inlines its logic, it is validated in
-layers (see `test/README.md`): the parent's pure debounce core is vendored as a
-**reference model** and run through the full host + formal suite (unit/property/
-fuzz, exhaustive state-space, symbolic, and CBMC); the **real firmware** is then
-proven behaviorally identical to that model — tick-for-tick over exhaustive +
-random stimulus on the host (comparing the status-LED bit RA0, the one output
-that means the same thing for every variant, with a gate that the stimulus
-visits *every* reachable model state), and on a simulated core in gpsim (which
-also asserts each variant's full ENGAGED control-pin pattern), with the mute/relay
-drivers' *mid-actuation* control-pin sequencing and pulse width — the transient
-neither the RA0 trace nor gpsim's settled snapshots can see — pinned separately by
-a host **actuation-sequence** test; and the real firmware's **defensive layer**
-(the SEU/EMI sanity gate and watchdog-reset path, which valid stimulus never
-reaches) is exercised by a host **fault-injection** harness. Static analysis (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
-verification, mutation testing, and model + firmware coverage gates round it out.
-`make test` runs all of it for the selected variant; `make test-variants` sweeps
-all three. A long-run `make test-soak` (libgpsim) and an optional KLEE pass
-(`make test-symbolic-klee`) are available as standalone targets.
+**Validation:** because the firmware inlines its logic, it is
+validated in layers (see `test/README.md`): the parent's pure
+debounce core is vendored as a **reference model** and run through
+the full host + formal suite (unit/property/ fuzz, exhaustive
+state-space, symbolic, and CBMC); the **real firmware** is then
+proven behaviorally identical to that model — tick-for-tick over
+exhaustive + random stimulus on the host (comparing the status-LED
+bit RA0, the one output that means the same thing for every variant,
+with a gate that the stimulus visits *every* reachable model state),
+and on a simulated core in gpsim (which also asserts each variant's
+full ENGAGED control-pin pattern), with the mute/relay drivers'
+*mid-actuation* control-pin sequencing and pulse width — the
+transient neither the RA0 trace nor gpsim's settled snapshots can
+see — pinned separately by a host **actuation-sequence** test; and
+the real firmware's **defensive layer** (the SEU/EMI sanity gate and
+watchdog-reset path, which valid stimulus never reaches) is
+exercised by a host **fault-injection** harness. Static analysis
+(cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
+verification, mutation testing, and model + firmware coverage gates
+round it out. `make test` runs all of it for the selected variant;
+`make test-variants` sweeps all three. A long-run `make test-soak`
+(libgpsim) and an optional KLEE pass (`make test-symbolic-klee`) are
+available as standalone targets.
 
 **Still lower-tier:** the gaps that remain are real — WDT-timing / brown-out
 *behaviour* is not simulated (gpsim's WDT calibration differs from silicon and it
