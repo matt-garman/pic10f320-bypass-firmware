@@ -3,11 +3,11 @@
 //
 // WHY THIS EXISTS
 // ---------------
-// test_logic_host.c (the golden model) and test_sim.c (the real firmware in
-// simavr) both verify behavior for *sampled* input sequences (hand-written
-// cases + randomized fuzzing). Randomized fuzzing can only ever cover a
-// vanishingly small fraction of possible input streams, so it can *find* bugs
-// but can never *prove* their absence.
+// test_logic_host.c (the vendored reference model under directed + fuzz tests)
+// and the firmware<->model equivalence + gpsim tests (the real firmware) both
+// verify behavior only for *sampled* input sequences. Randomized fuzzing can
+// only ever cover a vanishingly small fraction of possible input streams, so it
+// can *find* bugs but can never *prove* their absence.
 //
 // The debounce algorithm, however, has a tiny finite state space:
 //     program_state   : 2 values (PRESS_DEBOUNCE_WAIT, RELEASE_DEBOUNCE_WAIT)
@@ -39,9 +39,10 @@
 //   (I5) Liveness of press: from PRESS_DEBOUNCE_WAIT, a finite run of
 //        "pressed" (low) samples always produces exactly one toggle.
 //
-// The model logic here is the SAME algorithm as the golden model and the
-// firmware (ISR saturating integrator + main-loop state machine), and the
-// thresholds come from bypass_config.h, so this verifies the actual design.
+// The logic here is the SAME algorithm as the vendored model and the firmware
+// (saturating integrator + main-loop state machine -- the PIC firmware runs both
+// in its polled main loop, with no ISR), and the thresholds come from
+// bypass_config.h, so this verifies the actual design.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -255,26 +256,29 @@ static void verify_press_liveness(void) {
 //////////////////////////////////////////////////////////////////////////////
 // (I1-I3 under nondeterministic scheduling)
 //
-// The deterministic BFS above assumes exactly one ISR fire followed by
-// exactly one main-loop pass per 1ms tick. In practice the firmware can
-// run main twice in one tick period (once for the toggle/re-arm action,
-// once to reach the next sleep_mode() call) and in theory could miss
-// running main at all (stalled core). This function proves I1-I3 hold
-// under all schedules where main runs 0, 1, or 2 times per ISR tick.
+// The deterministic BFS above assumes exactly one integrator update followed by
+// exactly one state-machine pass per 1ms tick -- the firmware's normal polled
+// loop body. This function additionally proves I1-I3 hold even when that pairing
+// is perturbed: it separates the integrator update from the state-machine pass
+// and checks every schedule where the state machine runs 0, 1, or 2 times per
+// integrator update. (Defense-in-depth: the parent's AVR shell can genuinely run
+// main twice per ISR tick; this PIC runs both in one polled iteration, but a
+// missed or back-to-back tick is still covered here.)
 //
 // The race the proof covers explicitly:
-//   tick N:  ISR fires, debounce_counter_ reaches PRESSED_THRESH.
-//            main pass 1: sees counter >= PRESSED_THRESH -> toggle
+//   tick N:  the integrator update brings debounce_counter to PRESSED_THRESH.
+//            state pass 1: sees counter >= PRESSED_THRESH -> toggle
 //              (writes counter = RELEASE_THRESH, enters RELEASE_DEBOUNCE_WAIT).
-//            main pass 2: in RELEASE_DEBOUNCE_WAIT, counter = RELEASE_THRESH > 0
-//              -> no action (goes to sleep). I3 holds: no second toggle.
+//            state pass 2: in RELEASE_DEBOUNCE_WAIT, counter = RELEASE_THRESH > 0
+//              -> no action. I3 holds: no second toggle.
 //
-// I4/I5 liveness requires at least one main pass per tick (forward progress);
+// I4/I5 liveness requires at least one state pass per tick (forward progress);
 // they are proved above under the deterministic (k=1) schedule.
 //////////////////////////////////////////////////////////////////////////////
 
-// ISR sub-step: update the saturating counter only (no program-state change).
-static uint8_t isr_counter_step(uint8_t counter, int pin_low) {
+// Integrator sub-step: update the saturating counter only (no program-state
+// change), so the state-machine pass can be applied 0, 1, or 2 times after it.
+static uint8_t integrator_counter_step(uint8_t counter, int pin_low) {
     if (pin_low) {
         if (counter < RELEASE_THRESH) { counter++; }
     } else {
@@ -342,12 +346,12 @@ static void verify_nondeterministic_scheduling(void) {
         s.program_state    = (uint8_t)(tmp / 2);
 
         for (int bit = 0; bit < 2; ++bit) {
-            // Apply the ISR (counter update only).
+            // Apply the integrator update (counter only).
             state_t s_isr = s;
-            s_isr.debounce_counter = isr_counter_step(s.debounce_counter, bit);
+            s_isr.debounce_counter = integrator_counter_step(s.debounce_counter, bit);
 
             CHECK(state_valid(s_isr),
-                  "(I1-nd) ISR produced invalid state from ps=%u es=%u dc=%u in=%d",
+                  "(I1-nd) integrator produced invalid state from ps=%u es=%u dc=%u in=%d",
                   s.program_state, s.effect_state, s.debounce_counter, bit);
 
             for (int k = 0; k <= 2; ++k) {
@@ -360,10 +364,10 @@ static void verify_nondeterministic_scheduling(void) {
                     int toggled = main_state_step(&sm);
                     total_toggles += toggled;
 
-                    // (I3-nd) a main pass entering RELEASE_DEBOUNCE_WAIT must
-                    // not toggle. After the ISR + zero prior main passes, if
-                    // the pre-ISR state was already RELEASE_DEBOUNCE_WAIT, the
-                    // post-ISR state is still RELEASE_DEBOUNCE_WAIT.
+                    // (I3-nd) a state pass entering RELEASE_DEBOUNCE_WAIT must
+                    // not toggle. After the integrator update + zero prior state
+                    // passes, if the pre-update state was already
+                    // RELEASE_DEBOUNCE_WAIT, the post-update state still is.
                     if (ps_before == RELEASE_DEBOUNCE_WAIT) {
                         CHECK(!toggled,
                               "(I3-nd) toggle in pass %d from RELEASE_WAIT: "
@@ -378,7 +382,7 @@ static void verify_nondeterministic_scheduling(void) {
 
                 // (I1-nd) result state must be in valid range.
                 CHECK(state_valid(sm),
-                      "(I1-nd) invalid state after ISR+%d main passes: "
+                      "(I1-nd) invalid state after integrator+%d state passes: "
                       "ps=%u es=%u dc=%u (from ps=%u es=%u dc=%u in=%d)",
                       k, sm.program_state, sm.effect_state, sm.debounce_counter,
                       s.program_state, s.effect_state, s.debounce_counter, bit);
@@ -396,12 +400,14 @@ static void verify_nondeterministic_scheduling(void) {
     }
 
     printf("  nondeterministic scheduling: %d reachable states, "
-           "k={0,1,2} main-passes per ISR verified\n", total_reachable);
+           "k={0,1,2} state-passes per integrator update verified\n", total_reachable);
 }
 
-// Direct oracle for debounce_init_context(): the simavr harness cannot reliably
-// inject a "switch held at power-on" state (PORTB write during init() resets the
-// simavr IRQ-driven pin), so the init-path mutations are killed here instead.
+// Direct oracle for debounce_init_context(): exercises both power-on branches
+// (switch released vs. held at boot) at the model level. The held-at-boot branch
+// is also covered end-to-end by the gpsim power_on_pressed scenario and the
+// equivalence test's power-on-pressed stimulus; pinning it here too checks the
+// model's init logic directly and kills the init-path mutants quickly.
 static void verify_init_context(void) {
     // Normal power-on (switch released): arm for first press, counter at floor.
     debounce_context_t r = debounce_init_context(PIN_STATE_HIGH);

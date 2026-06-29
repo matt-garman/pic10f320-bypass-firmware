@@ -24,6 +24,7 @@ typedef enum {
     FWI_PROGRAM_STATE_OOR,    // program_state = 2 (outside the 0..1 enum range)
     FWI_PROGRAM_STATE_MAX,    // program_state = 255
     FWI_EFFECT_STATE_OOR,     // effect_state  = 2 (outside the 0..1 enum range)
+    FWI_COUNTER_OOR,          // debounce_counter > RELEASE_THRESH (SEU above valid range)
     FWI_PULLUP_LATCH_CLEARED, // WPUA footswitch pull-up latch flipped off
     FWI_PULLUP_GLOBAL_OFF,    // OPTION_REG nWPUEN set (global pull-up disable)
     FWI_LED_PIN_TO_INPUT,     // TRISA RA0 (LED) flipped from output to input
@@ -39,8 +40,10 @@ int fw_fault_run(fw_inject_t inj);
 
 // Drive the real firmware over `fsw[0..n-1]` (1 = pressed / RA3 low, 0 =
 // released). fsw[0] is the power-on level init() samples. Returns the final
-// LATA & 0x03 (RA0 LED | RA1 CD4053): 0x03 == ENGAGED, 0x00 == BYPASS. Used to
-// drive the firmware's happy-path lines for the coverage gate (and as a light
+// status-LED bit RA0 (LATA & 0x01): 1 == ENGAGED, 0 == BYPASS (0xFF on an
+// unexpected hang). RA0 is the variant-independent effect witness; the variant-
+// specific RA1/RA2 control pins are asserted on silicon by the gpsim test. Used
+// to drive the firmware's happy-path lines for the coverage gate (and as a light
 // behavioural cross-check; the equivalence test remains the behavioural oracle).
 uint8_t fw_drive(const uint8_t *fsw, int n);
 

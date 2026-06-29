@@ -1,5 +1,9 @@
 // Firmware harness for the equivalence test: runs the REAL PIC10F320 firmware
-// on the host and captures its LED/CD4053 output trace, one sample per tick.
+// on the host and captures its status-LED (RA0) output trace, one sample per
+// tick. RA0 is the variant-independent witness of effect state -- it is high iff
+// the effect is ENGAGED for every output variant (cd4053-simple, cd4053-with-
+// mute, tq2-relay), whereas the RA1/RA2 control pins differ per variant (their
+// per-variant LATA pattern is asserted on real silicon by the gpsim test).
 //
 // HOW IT WORKS
 //   - The mock <xc.h> (test/equiv/xc.h) turns the firmware's SFR accesses into
@@ -58,8 +62,9 @@ void bypass_equiv_on_clrwdt(void) {
     if (g_clrwdt_calls == 1) {
         return; // init()'s initial "pet the dog", before the main loop starts
     }
-    // A main-loop iteration just completed: capture the output for this tick.
-    g_trace[g_tick] = (uint8_t)(LATA & 0x03u);
+    // A main-loop iteration just completed: capture the status-LED (RA0) output
+    // for this tick -- the variant-independent witness of effect state.
+    g_trace[g_tick] = (uint8_t)(LATA & 0x01u);
     g_tick++;
     if (g_tick >= g_n) {
         longjmp(g_done, 1); // stimulus exhausted -> unwind out of fw_main()
@@ -81,8 +86,9 @@ static void on_alarm(int sig) {
 // Bring in the real firmware. -Dmain=fw_main renames its entry point.
 #include "../../bypass_mcu_pic10f320.c"
 
-// Run the firmware over `fsw[0..n-1]`, filling trace[i] with (LATA & 0x03) at the
-// end of the tick that consumed fsw[i]. init() samples fsw[0] (power-on level).
+// Run the firmware over `fsw[0..n-1]`, filling trace[i] with the LED bit
+// (LATA & 0x01) at the end of the tick that consumed fsw[i]. init() samples
+// fsw[0] (power-on level).
 void fw_run(const uint8_t *fsw, int n, uint8_t *trace) {
     g_fsw = fsw; g_n = n; g_tick = 0; g_trace = trace; g_clrwdt_calls = 0;
 

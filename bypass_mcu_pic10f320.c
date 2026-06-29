@@ -26,9 +26,6 @@
 // number of LOW footswitch pin reads to be considered press-debounced
 #define PRESSED_THRESH  (8U)
 
-#define FOOTSW_PIN      (3U) // RA3 (input-only) + weak pull-up
-#define LED_PIN         (0U) // RA0
-
 
 // PIC10F320 pin map: PORTA/TRISA/LATA bit positions. The PIC10F320 has four
 // GPIO pins: RA0, RA1, RA2 are bidirectional, and RA3 is INPUT-ONLY (it
@@ -39,16 +36,19 @@
 #define FOOTSW_PIN      (3U) // RA3 (input-only) + weak pull-up
 #define LED_PIN         (0U) // RA0
 
-// CD4053 simple
 #define CD4053_PIN      (1U) // RA1
 
-// CD4053 with muting
-#define CD4053_CTL1     (1U) // RA1
-#define CD4053_CTL2     (2U) // RA2
+#if defined(OUTPUT_CD4053_SIMPLE)
+#elif defined(OUTPUT_CD4053_WITH_MUTE)
+#  define CD4053_CTL1     (1U) // RA1
+#  define CD4053_CTL2     (2U) // RA2
+#elif defined(OUTPUT_TQ2_RELAY)
+#  define RELAY_RESET_PIN (1U) // RA1
+#  define RELAY_SET_PIN   (2U) // RA2
+#else
+#  error "output scheme not defined: define one of OUTPUT_CD4053_SIMPLE, OUTPUT_CD4053_WITH_MUTE, or OUTPUT_TQ2_RELAY"
+#endif
 
-// dual-latching mechanical relay bypass (e.g. Panasonic TQ2-2L)
-#define RELAY_RESET_PIN (1U) // RA1
-#define RELAY_SET_PIN   (2U) // RA2
 
 
 // Bits that must be OUTPUTS (RA0|RA1|RA2). Same macro NAME as the AVR map (the
@@ -229,7 +229,7 @@ static uint8_t hw_is_sanity_check_failed(void) {
             "CD4053 mute delay must be shorter than the release-lockout window, "
             "or the re-arm point can be missed during the blocking actuation");
 
-    return (0U == hw_output_pins_intact((1 << LED_PIN) | (1 << CD4053_CTL1) | (1 << CD4053_CTL2)));
+    return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_CTL1) | (1U << CD4053_CTL2)));
 }
 
 // See "Improved Scheme With Muting" in parent project (mcu-bypass-firmware)
@@ -285,7 +285,7 @@ static uint8_t hw_is_sanity_check_failed(void) {
             "relay coil pulse must be shorter than the release-lockout window, "
             "or the re-arm point can be missed during the blocking actuation");
 
-    return (0U == hw_output_pins_intact((1 << LED_PIN) | (1 << RELAY_SET_PIN) | (1 << RELAY_RESET_PIN)));
+    return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << RELAY_SET_PIN) | (1U << RELAY_RESET_PIN)));
 }
 
 // force both coils low
@@ -317,7 +317,7 @@ static void hw_set_engaged_state(void) {
 }
 
 #else
-#  error "OUTPUT not defined
+#  error "output scheme not defined: define one of OUTPUT_CD4053_SIMPLE, OUTPUT_CD4053_WITH_MUTE, or OUTPUT_TQ2_RELAY"
 #endif
 
 
@@ -492,6 +492,7 @@ void main(void) {
                 (ctx_.effect_state > ENGAGED) ||
                 // assert footswitch pull-up still enabled
                 (0U == hw_footswitch_pullup_intact()) ||
+                (ctx_.debounce_counter > RELEASE_THRESH) ||
                 // config-specific runtime sanity checks
                 hw_is_sanity_check_failed()
            ) {

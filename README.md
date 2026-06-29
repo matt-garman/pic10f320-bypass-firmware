@@ -1,7 +1,9 @@
 # PIC10F320 Bypass Firmware
 
 Scaled-down, single-file bypass/debounce firmware for the **PIC10F320**,
-supporting the **CD4053-simple** output only. It responds to a footswitch,
+supporting all three of the parent project's output stages — **CD4053-simple**,
+**CD4053-with-mute**, and the **TQ2 latching relay** — selected at compile time
+with one `OUTPUT_*` macro (see the Build section). It responds to a footswitch,
 debounces it, toggles effect bypass/engage, and drives a status LED.
 
 
@@ -23,19 +25,26 @@ project. Read that distinction literally:
   project deliberately trades that architecture away: the debounce logic is
   **inlined into `main()`**, mutating a file-global context and driving the
   hardware directly.
-- Current footprint: **206 / 256 words flash (80.5%)**, 10 / 64 bytes RAM.
+- Current footprint, per output variant (all fit the 256-word budget):
+  **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
+  **tq2-relay 233 (91.0%)**; 10–11 / 64 bytes RAM.
 
 **Validation:** because the firmware inlines its logic, it is validated in
 layers (see `test/README.md`): the parent's pure debounce core is vendored as a
 **reference model** and run through the full host + formal suite (unit/property/
 fuzz, exhaustive state-space, symbolic, and CBMC); the **real firmware** is then
 proven behaviorally identical to that model — tick-for-tick over exhaustive +
-random stimulus on the host, and on a simulated core in gpsim; and the real
+random stimulus on the host (comparing the status-LED bit RA0, the one output
+that means the same thing for every variant, with a gate that the stimulus
+visits *every* reachable model state), and on a simulated core in gpsim (which
+also asserts each variant's full ENGAGED control-pin pattern); and the real
 firmware's **defensive layer** (the SEU/EMI sanity gate and watchdog-reset path,
 which valid stimulus never reaches) is exercised by a host **fault-injection**
 harness. Static analysis (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
 verification, mutation testing, and model + firmware coverage gates round it out.
-`make test` runs all of it.
+`make test` runs all of it for the selected variant; `make test-variants` sweeps
+all three. A long-run `make test-soak` (libgpsim) and an optional KLEE pass
+(`make test-symbolic-klee`) are available as standalone targets.
 
 **Still lower-tier:** the gaps that remain are real — WDT-timing / brown-out
 *behaviour* is not simulated (gpsim's WDT calibration differs from silicon and it
@@ -51,7 +60,9 @@ PIC10F322 or AVR Classic build for maximum assurance.
 
 The debounce algorithm here is a **manual instantiation** of the parent's
 verified pure core — byte-for-byte identical arithmetic and state transitions,
-merely re-packaged (inlined, global-mutating) to fit flash.
+merely re-packaged (inlined, global-mutating) to fit flash. The three output
+drivers are likewise instantiations of the parent's per-variant output stages
+(`bypass_output_*.c`), inlined into the firmware's `#if defined(OUTPUT_*)` blocks.
 
 - **Derived from:** `mcu-bypass-firmware` @ commit
   `7384215` (`73842153b3764c0c9e8771a40502d15edd3386c4`).
@@ -74,8 +85,9 @@ shared at the source level:
 | Saturating integrator     | `debounce_integrate()` in `bypass_pure.c`  | inlined in the `main()` loop     |
 | State machine             | `debounce_step()` in `bypass_pure.c`       | inlined `switch` in `main()`     |
 | Power-on init             | `debounce_init_context()` in `bypass_pure.c` | inlined in `init()`            |
+| Output stages             | `bypass_output_{cd4053_simple,cd4053_with_mute,tq2_l2_5v_relay}.c` | inlined `#if defined(OUTPUT_*)` blocks |
 
-The pin map (RA3 footswitch, RA0 LED, RA1 CD4053) and the CONFIG word are
+The pin map (RA3 footswitch, RA0 LED, RA1/RA2 control) and the CONFIG word are
 PIC-local and are *not* shared with the parent.
 
 
@@ -84,9 +96,17 @@ PIC-local and are *not* shared with the parent.
 Requires Microchip XC8 v3.10 and the PIC10-12Fxxx DFP.
 
 ```sh
-make          # build the .hex and check it against the 256-word flash budget
+make          # build the .hex (default variant) and check the 256-word budget
 make size     # print XC8's full program/data memory summary
 make clean    # remove the build directory
+```
+
+Select the output variant with `PIC_VARIANT` (default `cd4053-simple`):
+
+```sh
+make PIC_VARIANT=cd4053-simple   # LED(RA0) + CD4053(RA1)
+make PIC_VARIANT=cd4053-mute     # LED(RA0) + CTL1(RA1) + CTL2(RA2), pre-switch mute
+make PIC_VARIANT=tq2-relay       # LED(RA0) + RESET(RA1) + SET(RA2), latching relay
 ```
 
 Override the toolchain paths on the command line if your install differs:
@@ -95,4 +115,5 @@ Override the toolchain paths on the command line if your install differs:
 make PIC_CC=/path/to/xc8-cc PIC_DFP=/path/to/DFP/x.y.z/xc8
 ```
 
-The build lands in `build_pic/bypass_mcu_pic10f320.hex`.
+The build lands in `build_pic/bypass_mcu_<variant>_pic10f320.hex` (e.g.
+`build_pic/bypass_mcu_cd4053-simple_pic10f320.hex`).

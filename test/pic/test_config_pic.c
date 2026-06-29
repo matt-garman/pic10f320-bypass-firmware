@@ -3,10 +3,11 @@
 // WHY THIS EXISTS
 // ---------------
 // The firmware's correctness depends on the device CONFIG word, which is set in
-// the C source via `#pragma config` (see src/bypass_mcu_pic10f320.c). A wrong
-// CONFIG bit does NOT show up in any host/formal test (those compile only the
-// MCU-neutral pure core) and the PIC shell has no simavr lock-step harness -- a
-// fat-fingered pragma would only bite on real silicon:
+// the C source via `#pragma config` (see bypass_mcu_pic10f320.c). A wrong CONFIG
+// bit does NOT show up in any host/formal test (those compile only the
+// MCU-neutral debounce model) and the gpsim functional test does not model the
+// CONFIG bits' real-silicon effects -- a fat-fingered pragma would only bite on
+// real silicon:
 //   - WDTE=OFF  -> the fault watchdog never fires; hw_force_wdt_reset() hangs
 //                  forever instead of recovering (the whole fault-recovery story
 //                  is load-bearing).
@@ -16,19 +17,19 @@
 //                  undefined state with the relay/MOSFET mid-actuation.
 //   - FOSC!=INTOSC / wrong osc -> wrong tick + wrong relay/mute pulse widths.
 //
-// This is the PIC analogue of test/avr/test_fuses.c, but STRONGER: rather than
-// re-checking a value the Makefile injects, it parses the EXACT CONFIG word the
-// XC8 compiler emitted into the built Intel-HEX from those `#pragma config`
-// lines, and asserts it matches the documented design intent. So a bad pragma
-// edit (in firmware the test suite otherwise cannot see) fails here instead of
-// on a bench session.
+// Rather than re-checking a value the Makefile injects, this parses the EXACT
+// CONFIG word the XC8 compiler emitted into the built Intel-HEX from those
+// `#pragma config` lines, and asserts it matches the documented design intent.
+// So a bad pragma edit (in firmware the test suite otherwise cannot see) fails
+// here instead of on a bench session.
 //
 // USAGE
 //   test_config_pic <file.hex> [<file.hex> ...]
-// The Makefile's `pic-test-config` target builds the HEX (via `make pic`) and
-// runs this against every build_pic/*.hex. All three output variants share the
-// same shell + the same #pragma config, so every variant's CONFIG word must be
-// identical; checking them all also catches any accidental divergence.
+// The Makefile's `test-config` target builds the HEX (via `make all`) and runs
+// this against the built HEX. All three output variants are compiled from the
+// same source with the same #pragma config block, so every variant's CONFIG
+// word is identical; passing multiple HEXes also catches any accidental
+// divergence between variants.
 //
 // References:
 //   PIC10(L)F320/322 datasheet DS40001585, "Configuration Word".
@@ -120,7 +121,7 @@
 #define EXPECTED_FULL   ((uint16_t)(EXPECTED_MASKED | CONFIG_UNIMPL_BITS)) // = 0x389E
 
 //////////////////////////////////////////////////////////////////////////////
-// Tiny check harness (same shape as test/avr/test_fuses.c)
+// Tiny check harness
 //////////////////////////////////////////////////////////////////////////////
 
 static int g_failures = 0;
@@ -281,8 +282,8 @@ static void verify_config(const char *path, uint16_t word) {
     // -------------------------------------------------------------------------
     // CRITICAL CROSS-CHECKS: three bits whose mis-setting is invisible to every
     // other test and breaks the device on real silicon. Re-asserted explicitly
-    // (same spirit as the AVR fuse test's BOD 4.3V cross-check) so the design
-    // INTENT, not just the bit pattern, is on record.
+    // (a design-intent cross-check, in the spirit of a fuse/CONFIG bench check)
+    // so the design INTENT, not just the bit pattern, is on record.
     //   WDTE=ON  : the fault-recovery path (hw_force_wdt_reset) needs the WDT.
     //   MCLRE=OFF: RA3 must be the footswitch input, not MCLR/VPP.
     //   BOREN=ON : brown-out protection during relay/MOSFET actuation.

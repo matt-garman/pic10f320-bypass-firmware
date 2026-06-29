@@ -34,17 +34,44 @@ PIC_XTAL        ?= 16000000UL
 # PIC10F320 device budget: 256 words flash / 64 B RAM.
 PIC_FLASH_WORDS ?= 256
 
+# --- output variant ----------------------------------------------------------
+# The firmware (bypass_mcu_pic10f320.c) supports three hardware output stages,
+# selected at compile time by exactly one OUTPUT_* macro. PIC_VARIANT picks one;
+# the resulting -DOUTPUT_* is threaded through EVERY target that compiles or
+# #includes the firmware (build, static analysis, equivalence, fault, gpsim,
+# coverage). PIC_ENGAGED_LATA is the full RA0..RA2 LATA pattern that variant
+# drives when ENGAGED (asserted by the gpsim test); RA0 (the LED) is bit 0 in all
+# three, which is why the host equivalence/fault tests are variant-independent.
+#   cd4053-simple : LED(RA0)+CD4053(RA1)             ENGAGED LATA = 0x3
+#   cd4053-mute   : LED(RA0)+CTL1(RA1)+CTL2(RA2)     ENGAGED LATA = 0x7
+#   tq2-relay     : LED(RA0)+RESET(RA1)+SET(RA2)     ENGAGED LATA = 0x1 (coils pulse, settle low)
+PIC_VARIANT     ?= cd4053-simple
+
+ifeq ($(PIC_VARIANT),cd4053-simple)
+  PIC_OUTPUT_MACRO := OUTPUT_CD4053_SIMPLE
+  PIC_ENGAGED_LATA := 0x3
+else ifeq ($(PIC_VARIANT),cd4053-mute)
+  PIC_OUTPUT_MACRO := OUTPUT_CD4053_WITH_MUTE
+  PIC_ENGAGED_LATA := 0x7
+else ifeq ($(PIC_VARIANT),tq2-relay)
+  PIC_OUTPUT_MACRO := OUTPUT_TQ2_RELAY
+  PIC_ENGAGED_LATA := 0x1
+else
+  $(error PIC_VARIANT must be one of: cd4053-simple cd4053-mute tq2-relay (got '$(PIC_VARIANT)'))
+endif
+PIC_OUTPUT_DEF  := -D$(PIC_OUTPUT_MACRO)
+
 # --- sources + outputs -------------------------------------------------------
 SRC             := bypass_mcu_pic10f320.c
 FW_BASE         := bypass_mcu
 BUILD_DIR       ?= build_pic
-HEX             := $(BUILD_DIR)/$(FW_BASE)_$(PIC_TAG).hex
+HEX             := $(BUILD_DIR)/$(FW_BASE)_$(PIC_VARIANT)_$(PIC_TAG).hex
 
 # XC8 compile flags: select the PIC10F320 + its DFP, C99 (XC8 has no C11, so
 # static_assert is aliased to _Static_assert in the source), -O2, and
 # _XTAL_FREQ for __delay_ms / the 16 MHz HFINTOSC compile-time assert.
 PIC_CFLAGS      := -mcpu=$(PIC_CHIP) -mdfp=$(PIC_DFP) -std=c99 -O2 \
-                   -D_XTAL_FREQ=$(PIC_XTAL)
+                   -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF)
 
 # --- analysis + test tooling -------------------------------------------------
 CPPCHECK        ?= cppcheck
@@ -54,7 +81,6 @@ HOST_CC         ?= gcc
 # gpsim processor name for the register-level functional test, and the full
 # LATA value when ENGAGED for cd4053-simple: LED(RA0) | CD4053(RA1) = 0x3.
 PIC_GPSIM_PROC  ?= p10f320
-PIC_ENGAGED_LATA ?= 0x3
 
 # XC8 + DFP header search paths: XC8's base include supplies xc.h; the DFP
 # supplies pic.h + proc/pic10f320.h (selected by the chip macro -D_10F320). The
@@ -71,7 +97,7 @@ MISRA_SUPPRESS  ?= test/misra_suppressions.txt
 
 # Defines/includes shared by both cppcheck passes: select the device header and
 # add the XC8 + DFP header search paths.
-PIC_CPPCHECK_CPPFLAGS = -D__XC8 -D$(PIC_CHIP_MACRO) -D_XTAL_FREQ=$(PIC_XTAL) \
+PIC_CPPCHECK_CPPFLAGS = -D__XC8 -D$(PIC_CHIP_MACRO) -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF) \
                         -I$(PIC_DFP_INCLUDE) -I$(PIC_DFP_INCLUDE)/proc -I$(PIC_XC8_INCLUDE)
 
 # cppcheck bug-finding pass.
@@ -131,12 +157,13 @@ COVERAGE_MIN ?= 95
 # the firmware (-Dmain=fw_main) and uses the same mock <xc.h> as test/equiv.
 FAULT_HARNESS  := test/fault/fw_fault_harness.c
 FAULT_DRIVER   := test/fault/test_fault.c
-FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL)
+FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF)
 FAULT_INC      := -Itest/equiv -Itest/fault
 
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
-        test test-config test-gpsim \
-        test-host test-formal test-model-check test-symbolic test-cbmc test-equiv \
+        test test-variants test-config test-gpsim \
+        test-host test-formal test-model-check test-symbolic test-symbolic-klee \
+        test-cbmc test-equiv test-soak \
         test-fault test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
@@ -150,9 +177,9 @@ all: $(SRC)
 		echo "XC8 not found at $(PIC_CC) (override with PIC_CC=...)"; exit 1; \
 	fi
 	@mkdir -p $(BUILD_DIR)
-	@echo "=== PIC10F320 build + flash-budget ($(PIC_FLASH_WORDS) words) ==="
+	@echo "=== PIC10F320 build + flash-budget ($(PIC_FLASH_WORDS) words, variant $(PIC_VARIANT)) ==="
 	@out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
-		-o $(FW_BASE)_$(PIC_TAG).hex 2>&1` \
+		-o $(notdir $(HEX)) 2>&1` \
 		|| { printf '%s\n' "$$out"; echo "FAIL: did not compile for PIC10F320"; exit 1; }; \
 	dec=`printf '%s\n' "$$out" | grep -E 'Program space' \
 		| grep -oE '\( *[0-9]+ *\)' | head -1 | tr -d '() '`; \
@@ -171,7 +198,7 @@ all: $(SRC)
 size: $(SRC)
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
-		-o $(FW_BASE)_$(PIC_TAG).hex 2>&1 | grep -iE 'space|memory summary' || true
+		-o $(notdir $(HEX)) 2>&1 | grep -iE 'space|memory summary' || true
 
 # --- static analysis ---------------------------------------------------------
 analyze: analyze-cppcheck analyze-misra
@@ -265,6 +292,40 @@ test-symbolic:
 		test/formal/test_symbolic.c $(MODEL_SRC) -o $(BUILD_DIR)/test_symbolic
 	@$(BUILD_DIR)/test_symbolic
 
+# Optional: run the SAME single-step properties under KLEE symbolic execution
+# (only if KLEE + its matching clang/llvm-link are installed). KLEE explores the
+# symbolic input domain with an SMT solver instead of enumerating it; the
+# exhaustive 'test-symbolic' target already covers the same domain, so this is a
+# bonus -- NOT part of `make test`, and skips cleanly when KLEE is absent.
+#
+# test_symbolic.c's step() delegates to the vendored model's debounce_integrate()
+# / debounce_step() (test/model/bypass_pure.c), so BOTH are compiled to bitcode
+# and llvm-link'd before KLEE runs -- otherwise the model functions would be
+# undefined externals and the proof unsound. Override the tool paths if your KLEE
+# install uses a versioned clang/llvm-link (KLEE needs a matching LLVM).
+KLEE          ?= klee
+KLEE_CLANG    ?= clang
+KLEE_LLVMLINK ?= llvm-link
+KLEE_INC      ?= /usr/include
+.PHONY: test-symbolic-klee
+test-symbolic-klee:
+	@if command -v $(KLEE) >/dev/null 2>&1 && command -v $(KLEE_CLANG) >/dev/null 2>&1 \
+	   && command -v $(KLEE_LLVMLINK) >/dev/null 2>&1; then \
+		mkdir -p $(BUILD_DIR); \
+		echo "KLEE symbolic execution of the single-step property bundle:"; \
+		$(KLEE_CLANG) -DUSE_KLEE -I$(KLEE_INC) $(HOST_INC) -emit-llvm -c -g -O0 \
+			test/formal/test_symbolic.c -o $(BUILD_DIR)/test_symbolic.bc && \
+		$(KLEE_CLANG) -DUSE_KLEE -I$(KLEE_INC) $(HOST_INC) -emit-llvm -c -g -O0 \
+			$(MODEL_SRC) -o $(BUILD_DIR)/bypass_pure_klee.bc && \
+		$(KLEE_LLVMLINK) $(BUILD_DIR)/test_symbolic.bc $(BUILD_DIR)/bypass_pure_klee.bc \
+			-o $(BUILD_DIR)/test_symbolic_klee.bc && \
+		$(KLEE) --exit-on-error $(BUILD_DIR)/test_symbolic_klee.bc; \
+	else \
+		echo "KLEE (or its matching clang/llvm-link) not installed; the exhaustive"; \
+		echo "'test-symbolic' target covers the same input domain. Install klee +"; \
+		echo "a matching llvm to enable SMT-backed symbolic execution."; \
+	fi
+
 # CBMC bounded model checking of the vendored model (SAT/SMT backend), proving the
 # same invariants over the symbolic domain plus freedom from UB. Skips if absent.
 test-cbmc:
@@ -304,7 +365,7 @@ test-formal: test-model-check test-symbolic test-cbmc
 # the firmware is XC8-targeted C) and our strict driver + model.
 test-equiv:
 	@mkdir -p $(BUILD_DIR)
-	@$(HOST_CC) -std=c11 -O2 -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) \
+	@$(HOST_CC) -std=c11 -O2 -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF) \
 		-Itest/equiv -c test/equiv/fw_harness.c -o $(BUILD_DIR)/fw_harness.o
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_INC) -c test/equiv/test_equiv.c -o $(BUILD_DIR)/test_equiv_drv.o
 	@$(HOST_CC) $(HOST_CFLAGS) $(HOST_INC) -c $(MODEL_SRC) -o $(BUILD_DIR)/bypass_pure_equiv.o
@@ -377,6 +438,12 @@ coverage-check:
 # #included firmware source resolves for line annotation.
 coverage-check-fw:
 	@mkdir -p $(COVERAGE_DIR)
+	@# Clear stale gcov artifacts first: different output variants compile a
+	@# different-sized firmware into the same coverage objects, so a leftover
+	@# .gcda/.gcno from a prior variant (e.g. during `make test-variants`) trips
+	@# libgcov's "overwriting an existing profile data with a different checksum".
+	@rm -f $(COVERAGE_DIR)/fw_fault_cov.gcda $(COVERAGE_DIR)/fw_fault_cov.gcno \
+		$(COVERAGE_DIR)/test_fault_cov_drv.gcda $(COVERAGE_DIR)/test_fault_cov_drv.gcno
 	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_FW_DEFS) $(FAULT_INC) \
 		-c $(FAULT_HARNESS) -o $(COVERAGE_DIR)/fw_fault_cov.o
 	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_INC) \
@@ -394,6 +461,54 @@ coverage-clean:
 	rm -f *.gcov
 	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
+# --- long-duration gpsim soak (libgpsim) -------------------------------------
+# Drive the real built HEX in gpsim -- via libgpsim, NOT the gpsim CLI -- for
+# PIC_SOAK_DURATION_MS of simulated time, asserting WDT liveness + a periodic
+# 2-press responsiveness round-trip. Failures are non-fatal and logged; the run
+# continues the full duration. Variant-agnostic (the LED is RA0 on every
+# variant); PIC_VARIANT selects which HEX is soaked. See test/pic/test_soak_pic.cc.
+#
+# STANDALONE -- deliberately NOT in `make test`: it runs for minutes and links
+# libgpsim, which needs the gpsim-dev + libglib2.0-dev headers (CI may lack
+# them). Skips cleanly (exit 0) when the compiler, those headers, glib, or the
+# built HEX are absent -- exactly as `test-gpsim` skips without gpsim. Phony +
+# always recompiles so PIC_SOAK_* command-line overrides are always applied.
+#
+# Overrides: PIC_VARIANT, PIC_SOAK_DURATION_MS (default 1 h; pass 86400000 for
+# 24 h), PIC_SOAK_LIVENESS_INTERVAL_MS, PIC_SOAK_PROGRESS_INTERVAL_MS.
+PIC_SOAK_CXX         ?= c++
+PIC_SOAK_GPSIM_INC   ?= /usr/include/gpsim
+PIC_SOAK_DURATION_MS ?= 3600000
+PIC_SOAK_LIVENESS_INTERVAL_MS ?= 60000
+PIC_SOAK_PROGRESS_INTERVAL_MS ?= 3600000
+PIC_SOAK_SRC = test/pic/test_soak_pic.cc
+PIC_SOAK_BIN = $(BUILD_DIR)/test_soak_pic
+
+.PHONY: test-soak
+test-soak: all
+	@if ! command -v $(PIC_SOAK_CXX) >/dev/null 2>&1; then \
+		echo "no C++ compiler ($(PIC_SOAK_CXX)); skipping gpsim soak"; exit 0; \
+	fi; \
+	if [ ! -f "$(PIC_SOAK_GPSIM_INC)/sim_context.h" ]; then \
+		echo "gpsim-dev headers not at $(PIC_SOAK_GPSIM_INC); skipping soak (install gpsim-dev)"; exit 0; \
+	fi; \
+	if ! pkg-config --exists glib-2.0 2>/dev/null; then \
+		echo "libglib2.0-dev not found; skipping soak (install libglib2.0-dev)"; exit 0; \
+	fi; \
+	if [ ! -f "$(HEX)" ]; then \
+		echo "no $(HEX) (XC8 absent?); skipping soak"; exit 0; \
+	fi; \
+	echo "--- gpsim soak: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) duration=$(PIC_SOAK_DURATION_MS) ms ---"; \
+	$(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
+		-isystem $(PIC_SOAK_GPSIM_INC) -Itest/model \
+		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
+		-DF_CPU_HZ=$(PIC_XTAL) \
+		-DSOAK_DURATION_MS=$(PIC_SOAK_DURATION_MS) \
+		-DSOAK_LIVENESS_INTERVAL_MS=$(PIC_SOAK_LIVENESS_INTERVAL_MS) \
+		-DSOAK_PROGRESS_INTERVAL_MS=$(PIC_SOAK_PROGRESS_INTERVAL_MS) \
+		$(PIC_SOAK_SRC) -o $(PIC_SOAK_BIN) -lgpsim; \
+	./$(PIC_SOAK_BIN)
+
 # --- mutation testing --------------------------------------------------------
 # Inject deliberate faults into the firmware and the model, and confirm the suite
 # detects each one. NOT part of `make test` (it rebuilds per mutant).
@@ -403,7 +518,21 @@ test-mutation:
 # The full validation suite (everything that gates; mutation is separate).
 test: all analyze test-config test-host test-formal test-equiv test-fault test-gpsim \
       coverage-check coverage-check-fw
-	@echo "=== all PIC10F320 validation complete ==="
+	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
+
+# Run the full validation suite for EVERY output variant in turn. `make test`
+# alone covers just the default PIC_VARIANT; this sweeps all three. The debounce
+# logic is identical across variants, but each has a distinct output driver,
+# sanity-check pin mask, flash budget, and gpsim ENGAGED LATA pattern, so each
+# is built and validated independently (the parent project validates all
+# variants the same way).
+PIC_VARIANTS_ALL ?= cd4053-simple cd4053-mute tq2-relay
+test-variants:
+	@for v in $(PIC_VARIANTS_ALL); do \
+		echo "===================== VARIANT $$v ====================="; \
+		$(MAKE) --no-print-directory PIC_VARIANT=$$v test || exit 1; \
+	done
+	@echo "=== all output variants validated ==="
 
 clean:
 	rm -rf $(BUILD_DIR) $(COVERAGE_DIR)

@@ -17,8 +17,11 @@
 //     long enough to exercise multiple toggles, the full release lock-out drain,
 //     and re-arm.
 //
-// Output convention (both sides): BYPASS -> LATA & 0x03 == 0x00, ENGAGED -> 0x03
-// (RA0 LED + RA1 CD4053). Stimulus convention: 1 = pressed (RA3 low), 0 = released.
+// Output convention (both sides): the status-LED bit RA0 (LATA & 0x01) -- 0x00
+// when BYPASS, 0x01 when ENGAGED. RA0 is the one output that means the same thing
+// across all three variants (cd4053-simple/-with-mute/tq2-relay); the variant-
+// specific RA1/RA2 control pattern is asserted on real silicon by the gpsim test.
+// Stimulus convention: 1 = pressed (RA3 low), 0 = released.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -44,16 +47,81 @@ extern void fw_run(const uint8_t *fsw, int n, uint8_t *trace);
 static long g_compared = 0; // number of (stimulus) sequences compared
 static long g_failures = 0;
 
+//////////////////////////////////////////////////////////////////////////////
+// Model-state coverage. The equivalence run proves the firmware matches the
+// model only on the inputs it actually exercises -- and it is exhaustive only to
+// EQUIV_EXHAUSTIVE_LEN ticks (shorter than one full press+lock-out cycle), with
+// longer horizons sampled randomly. To make sure that sampling did not leave any
+// reachable model state unexercised, we record which states the stimulus drives
+// the model through and gate that EVERY reachable state was visited. (The model
+// itself is proven exhaustively over all reachable states by test-model-check;
+// this ties the equivalence run to that same state set.)
+//////////////////////////////////////////////////////////////////////////////
+#define COUNTER_VALUES ((int)RELEASE_THRESH + 1)
+#define NUM_STATES     (2 * 2 * COUNTER_VALUES)
+
+static int state_index(state_t s) {
+    return (s.program_state * 2 + s.effect_state) * COUNTER_VALUES
+           + s.debounce_counter;
+}
+
+static uint8_t g_state_seen[NUM_STATES];
+
+static void mark_state_seen(state_t s) {
+    int const idx = state_index(s);
+    if (idx >= 0 && idx < NUM_STATES) { g_state_seen[idx] = 1u; }
+}
+
+// BFS the reachable state set from both power-on roots (the same roots and the
+// same step() the equivalence compares against), then report how many reachable
+// states the stimulus actually visited. Returns the count of reachable-but-
+// unvisited states (0 == full coverage).
+static int reachable_states_unvisited(void) {
+    uint8_t reach[NUM_STATES];
+    memset(reach, 0, sizeof reach);
+    state_t stack[NUM_STATES];
+    int sp = 0;
+    state_t const roots[2] = {
+        { PRESS_DEBOUNCE_WAIT,   BYPASS, 0 },
+        { RELEASE_DEBOUNCE_WAIT, BYPASS, (uint8_t)RELEASE_THRESH },
+    };
+    for (int i = 0; i < 2; ++i) {
+        int const idx = state_index(roots[i]);
+        if (!reach[idx]) { reach[idx] = 1u; stack[sp++] = roots[i]; }
+    }
+    int reachable = 0, unvisited = 0;
+    while (sp > 0) {
+        state_t const s = stack[--sp];
+        reachable++;
+        if (!g_state_seen[state_index(s)]) {
+            unvisited++;
+            fprintf(stderr,
+                "  state-coverage: reachable state ps=%u es=%u dc=%u never visited\n",
+                s.program_state, s.effect_state, s.debounce_counter);
+        }
+        for (int bit = 0; bit < 2; ++bit) {
+            step_result_t const r = step(s, bit);
+            int const nidx = state_index(r.next);
+            if (!reach[nidx]) { reach[nidx] = 1u; stack[sp++] = r.next; }
+        }
+    }
+    printf("  state-coverage: %d/%d reachable model states visited by the stimulus\n",
+           reachable - unvisited, reachable);
+    return unvisited;
+}
+
 // The reference-model oracle: the same per-tick output trace the firmware should
 // produce. init from fsw[0] (power-on level), then one step() per tick.
 static void model_run(const uint8_t *fsw, int n, uint8_t *trace) {
     pin_state_t const p0 = fsw[0] ? PIN_STATE_LOW : PIN_STATE_HIGH;
     debounce_context_t const c = debounce_init_context(p0);
     state_t s = { (uint8_t)c.program_state, (uint8_t)c.effect_state, c.debounce_counter };
+    mark_state_seen(s); // power-on state
     for (int i = 0; i < n; ++i) {
         step_result_t const r = step(s, fsw[i]);
         s = r.next;
-        trace[i] = (uint8_t)((s.effect_state == ENGAGED) ? 0x03u : 0x00u);
+        mark_state_seen(s);
+        trace[i] = (uint8_t)((s.effect_state == ENGAGED) ? 0x01u : 0x00u);
     }
 }
 
@@ -68,7 +136,7 @@ static int compare_one(const uint8_t *fsw, int n) {
         if (fw_trace[i] != md_trace[i]) {
             g_failures++;
             fprintf(stderr,
-                "FAIL: divergence at tick %d/%d: firmware LATA&3=0x%X, model=0x%X\n",
+                "FAIL: divergence at tick %d/%d: firmware LED(RA0)=%u, model=%u\n",
                 i, n, fw_trace[i], md_trace[i]);
             // dump a short window of the stimulus around the divergence
             int lo = i - 6; if (lo < 0) { lo = 0; }
@@ -120,5 +188,13 @@ int main(void) {
     if (g_failures == 0) { run_random(); }
     printf("equivalence: %ld sequences compared, %ld divergence(s)\n",
            g_compared, g_failures);
+
+    // Gate: the stimulus above must have driven the model through every
+    // reachable state, so no reachable state is left unverified by equivalence.
+    if (reachable_states_unvisited() != 0) {
+        fprintf(stderr, "FAIL: equivalence stimulus did not visit every reachable "
+                        "model state (see above)\n");
+        g_failures++;
+    }
     return g_failures ? 1 : 0;
 }

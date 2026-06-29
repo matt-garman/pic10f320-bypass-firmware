@@ -1,4 +1,5 @@
-// CBMC formal verification of the bypass debounce core (bypass_pure.c).
+// CBMC formal verification of the vendored reference debounce core
+// (test/model/bypass_pure.c).
 //
 // WHY THIS EXISTS
 // ---------------
@@ -13,11 +14,14 @@
 //      a mathematically distinct argument from the explicit BFS/enumeration, so
 //      a defect that slipped past one engine's encoding is unlikely to slip past
 //      all three.
-//   2. On the ACTUAL firmware functions -- debounce_integrate(), debounce_step()
-//      and debounce_init_context() from bypass_pure.c, the exact code that ships
-//      (the functional-core/imperative-shell split is what makes the core
-//      hardware-free and therefore model-checkable). This is TODO.md Tier 3:
-//      "Prove properties of the actual C source rather than a re-implementation."
+//   2. On the vendored reference model's real functions -- debounce_integrate(),
+//      debounce_step() and debounce_init_context() from test/model/bypass_pure.c
+//      (a byte-for-byte copy of the parent project's host- and formally-verified
+//      pure core). This project's SHIPPING firmware inlines that same algorithm
+//      into main() to fit the PIC10F320's flash, so CBMC does NOT run on the
+//      firmware translation unit directly; the firmware<->model equivalence test
+//      (make test-equiv) is what carries these proofs over to the shipping code,
+//      by pinning the real firmware's output to this model tick-for-tick.
 //   3. With CBMC's automatic instrumentation enabled (--bounds-check,
 //      --conversion-check, --signed/unsigned-overflow-check, --unwinding-
 //      assertions, ...), which additionally proves the debounce path is free of

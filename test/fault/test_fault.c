@@ -109,6 +109,7 @@ static void test_fault_injection(void) {
     expect_reset(FWI_PROGRAM_STATE_OOR,    "program_state=2 (out of range)");
     expect_reset(FWI_PROGRAM_STATE_MAX,    "program_state=255");
     expect_reset(FWI_EFFECT_STATE_OOR,     "effect_state=2 (out of range)");
+    expect_reset(FWI_COUNTER_OOR,          "debounce_counter > RELEASE_THRESH (out of range)");
     expect_reset(FWI_PULLUP_LATCH_CLEARED, "WPUA pull-up latch cleared");
     expect_reset(FWI_PULLUP_GLOBAL_OFF,    "OPTION_REG nWPUEN=1 (global pull-up off)");
     expect_reset(FWI_LED_PIN_TO_INPUT,     "TRISA RA0 (LED) flipped to input");
@@ -126,7 +127,7 @@ static void test_happy_path(void) {
     n = 0;
     for (int i = 0; i < 3;  ++i) { a[n++] = 0; } // released
     for (int i = 0; i < 20; ++i) { a[n++] = 1; } // press well past PRESSED_THRESH
-    CHECK(fw_drive(a, n) == 0x03u, "clean press should drive ENGAGED (LATA&3=0x3)");
+    CHECK(fw_drive(a, n) == 0x01u, "clean press should drive ENGAGED (LED RA0 on)");
 
     // Full round trip: engage, release past the lock-out, engage again -> BYPASS.
     // (Released preamble so this is a clean power-on, not a power-on-pressed.)
@@ -135,7 +136,7 @@ static void test_happy_path(void) {
     for (int i = 0; i < 20; ++i) { a[n++] = 1; } // engage
     for (int i = 0; i < 30; ++i) { a[n++] = 0; } // release + drain lock-out (>=25)
     for (int i = 0; i < 20; ++i) { a[n++] = 1; } // engage again -> toggles back
-    CHECK(fw_drive(a, n) == 0x00u, "second press should toggle back to BYPASS");
+    CHECK(fw_drive(a, n) == 0x00u, "second press should toggle back to BYPASS (LED off)");
 
     // Power-on with the switch HELD: stay BYPASS, never engage while held.
     uint8_t b[96];
@@ -148,7 +149,7 @@ static void test_happy_path(void) {
     for (int i = 0; i < 30; ++i) { b[m++] = 1; } // held at boot
     for (int i = 0; i < 30; ++i) { b[m++] = 0; } // release, drain lock-out
     for (int i = 0; i < 20; ++i) { b[m++] = 1; } // fresh press -> ENGAGED
-    CHECK(fw_drive(b, m) == 0x03u, "fresh press after power-on-hold engages");
+    CHECK(fw_drive(b, m) == 0x01u, "fresh press after power-on-hold engages (LED on)");
 }
 
 int main(void) {

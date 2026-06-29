@@ -1,19 +1,20 @@
 # gpsim command script: drive the PIC10F320 footswitch and snapshot PORTA/LATA.
 #
 # WHAT THIS IS
-#   A register-level functional check of the PIC shell (bypass_mcu_pic10f320.c)
-#   running inside gpsim. The pure debounce core and the output drivers are
-#   already covered by the host/formal suite and (on AVR) by simavr lock-step;
-#   the PIC SHELL -- oscillator/TMR2 tick, footswitch read on RA3, the debounce
-#   integrate/step wiring, and the GPIO outputs -- has no simavr equivalent, so
-#   this drives the real built HEX in gpsim and asserts the observable register
-#   state at four settled checkpoints. The wrapper test/pic/run_gpsim_test.sh
-#   parses the snapshots and turns them into PASS/FAIL.
+#   A register-level functional check of the firmware (bypass_mcu_pic10f320.c)
+#   running inside gpsim. The debounce algorithm is already covered by the
+#   host/formal suite (against the vendored model) and by the firmware<->model
+#   equivalence test; this drives the REAL built HEX in gpsim to additionally
+#   exercise what those host harnesses mock -- the oscillator/TMR2 tick, the
+#   footswitch read on RA3, the debounce integrate/step wiring, and the GPIO
+#   outputs -- and asserts the observable register state at four settled
+#   checkpoints. The wrapper test/pic/run_gpsim_test.sh parses the snapshots and
+#   turns them into PASS/FAIL.
 #
-# HOW IT IS RUN (see the wrapper / `make pic-test-gpsim`)
+# HOW IT IS RUN (see the wrapper / `make test-gpsim`)
 #   gpsim -i -pp10f320 <variant>.hex -c test/pic/footswitch_toggle.stc
-#   The HEX (any of the three variants) is supplied on the gpsim command line, so
-#   this script is variant-agnostic. gpsim names the PIC pins ra0..ra3.
+#   The HEX (any of the three output variants) is supplied on the gpsim command
+#   line, so this script is variant-agnostic. gpsim names the PIC pins ra0..ra3.
 #
 # PINS (per bypass_mcu_pic10f320.c)
 #   RA3 = footswitch (input; high = released, low = pressed)

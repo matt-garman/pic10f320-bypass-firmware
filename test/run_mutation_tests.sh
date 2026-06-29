@@ -44,6 +44,7 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);@return 0U;@	test-fault	FW output-pin SEU check neutered (lost LED/CD4053 output never detected)"
 "bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
 "bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
+"bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
 # --- firmware: GPIO / footswitch wiring (killed by gpsim register checks) ---------
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	test-gpsim	FW CD4053 control routed the wrong way (RA1 stuck low); ENGAGED LATA!=0x3"

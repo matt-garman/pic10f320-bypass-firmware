@@ -133,6 +133,7 @@ static void apply_injection(int inj) {
         case FWI_PROGRAM_STATE_OOR:    ctx_.program_state = (program_state_t)2;   break;
         case FWI_PROGRAM_STATE_MAX:    ctx_.program_state = (program_state_t)255; break;
         case FWI_EFFECT_STATE_OOR:     ctx_.effect_state  = (effect_state_t)2;    break;
+        case FWI_COUNTER_OOR:          ctx_.debounce_counter = (uint8_t)(RELEASE_THRESH + 50U); break;
         case FWI_PULLUP_LATCH_CLEARED: WPUA &= (uint8_t)~(1u << 3);               break;
         case FWI_PULLUP_GLOBAL_OFF:    OPTION_REGbits.nWPUEN = 1u;                break;
         case FWI_LED_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 0);               break;
@@ -152,7 +153,7 @@ void bypass_equiv_on_clrwdt(void) {
     }
 
     if (g_mode == MODE_DRIVE) {
-        g_last_lata = (uint8_t)(LATA & 0x03u); // output for the tick just finished
+        g_last_lata = (uint8_t)(LATA & 0x01u); // LED bit (RA0) for the tick just finished
         g_tick++;
         if (g_tick >= g_n) {
             disarm_timer();
@@ -207,9 +208,9 @@ uint8_t fw_drive(const uint8_t *fsw, int n) {
     }
     disarm_timer();
     if (sj == 2) {
-        return 0xFFu; // unexpected hang on valid stimulus -> impossible LATA value
+        return 0xFFu; // unexpected hang on valid stimulus -> impossible LED value
     }
-    return g_last_lata;
+    return g_last_lata; // LED bit (RA0): 1 = ENGAGED, 0 = BYPASS
 }
 
 // --- direct predicate probes (no main loop) ----------------------------------

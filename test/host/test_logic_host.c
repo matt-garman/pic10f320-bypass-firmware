@@ -558,9 +558,9 @@ static void test_asymmetric_emi_bursts(void) {
           "asymmetric EMI bursts: remained in BYPASS");
 }
 
-// Multi-seed Monte Carlo: the fixed-seed fuzz tests (test_fuzz_random_patterns,
-// and test_random_noise_resilience in test_sim.c) lock an EXACT toggle count for
-// ONE seed (0xDEADBEEF). That is a strong regression lock but does not prove the
+// Multi-seed Monte Carlo: the fixed-seed fuzz test (test_fuzz_random_patterns)
+// locks an EXACT toggle count for ONE seed (0xDEADBEEF). That is a strong
+// regression lock but does not prove the
 // firmware is correct for ALL seeds -- a seed-dependent anomaly would pass the
 // fixed-seed test and only surface in the field. This runs many seeds through
 // the golden model (fast: hundreds of seeds x a long stream in well under a
