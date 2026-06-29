@@ -276,7 +276,7 @@ static void hw_set_engaged_state(void) {
 #elif defined(OUTPUT_TQ2_RELAY)
 
 // Panasonic TQ-L2-5V specifies a 4ms minimum current pulse for the set/reset
-// coils; multiple by a factor of three for a safety margin
+// coils; multiply by a factor of three for a safety margin
 #  define TQ2_L2_5V_PULSE_MS (12U) 
 
 static uint8_t hw_is_sanity_check_failed(void) {
