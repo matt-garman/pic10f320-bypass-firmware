@@ -566,9 +566,9 @@ void main(void) {
                 }
                 break;
 
-            // technicall impossible to reach
-            // but left for: defense-in-depth/belt-and-suspenders with the
-            // sanity checks above
+            // technically impossible to reach (sanity checks above would
+            // catch this); but left for defense-in-depth/belt-and-suspenders
+            // idiom of the overall project
             default:
                 hw_force_wdt_reset();
                 break;
