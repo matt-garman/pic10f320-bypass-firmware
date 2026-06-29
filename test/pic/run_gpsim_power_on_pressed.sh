@@ -13,8 +13,9 @@
 #   run_gpsim_power_on_pressed.sh <hexfile>
 #
 #   <hexfile>   a built PIC HEX (build_pic/bypass_mcu_pic10f320.hex). Only RA0/RA3
-#               are asserted -- identical across all three variants -- so no
-#               per-variant control-pin pattern is needed here.
+#               are asserted -- identical across every variant (the analog-switch
+#               drive polarity flips only RA1/RA2) -- so no per-variant control-pin
+#               pattern is needed here.
 #
 # Exit status: 0 = all checks passed (or gpsim not installed -> skipped); 1 = a
 # check failed or gpsim/the HEX could not be run.

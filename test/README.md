@@ -6,10 +6,13 @@ validation strategy (see the top-level `README.md`). The parent factors
 its debounce logic into a *pure*, host- and formally-verified core
 (`bypass_pure.c`); this firmware inlines that logic into `main()` to fit the
 PIC10F320's 256-word flash, so there is no separable pure unit *inside the
-firmware* to test directly. The firmware supports all three output variants
-(`cd4053-simple`, `cd4053-mute`, `tq2-relay`) via one `OUTPUT_*` macro; pick the
-one under test with `make PIC_VARIANT=...` (default `cd4053-simple`), or sweep
-all three with `make test-variants`.
+firmware* to test directly. The firmware supports five output variants
+(`cd4053-simple`, `tmux4053-simple`, `cd4053-mute`, `tmux4053-mute`, `tq2-relay`)
+via one `OUTPUT_*` macro plus an optional `BYPASS_X4053_DIRECT_DRIVE` polarity
+flag (the `tmux4053-*` variants reuse their `cd4053-*` sibling's driver source
+with the analog-switch control pins driven directly instead of through a MOSFET
+inverter); pick the one under test with `make PIC_VARIANT=...` (default
+`cd4053-simple`), or sweep all five with `make test-variants`.
 
 To get as close to the parent as possible anyway, validation here is built in
 **two layers**:
@@ -35,7 +38,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
-| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (208 / 238 / 233 for cd4053-simple / -mute / tq2-relay). | XC8 |
+| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (208 / 238 / 233 for cd4053-simple / -mute / tq2-relay; each tmux4053-\* matches its cd4053-\* sibling). | XC8 |
 | Bug-finding analysis | `analyze-cppcheck` | No cppcheck findings. | cppcheck (`pic8-enhanced`) |
 | MISRA-C:2012 | `analyze-misra` | Zero MISRA deviations (`../MISRA_COMPLIANCE.md`). | cppcheck + MISRA addon |
 | CONFIG word | `test-config` | The CONFIG word XC8 emitted matches design intent (`0x389E`). | host `gcc` |
@@ -44,14 +47,14 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
-| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-only) cannot see. | host `gcc` |
+| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED, so the direct-drive (TMUX4053) variants' inverted control pins are pinned too (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
-| **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full ENGAGED control-pin pattern (two scenarios). | gpsim |
+| **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
 | Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
 
 `make test` runs all of the above in order **for the selected variant**;
-`make test-variants` repeats the whole suite for all three. `make test-formal`
+`make test-variants` repeats the whole suite for all five. `make test-formal`
 runs just the three formal engines. Standalone (not in `make test`):
 `make test-mutation` (below), `make test-soak` (a long-run libgpsim soak), and
 `make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
@@ -63,7 +66,7 @@ This is the centrepiece that ties the firmware to the verified model. A mock
 `CLRWDT()` into a per-tick hook, so the **actual** `bypass_mcu_pic10f320.c` runs
 on the host one main-loop iteration per simulated tick. `fw_harness.c` captures
 its status-LED bit (`LATA` RA0) per tick — the one output that means the same
-thing for all three variants (high iff ENGAGED); `test_equiv.c` compares that
+thing for every variant, polarity included (high iff ENGAGED); `test_equiv.c` compares that
 trace against the model for the same footswitch stimulus — exhaustively for all
 length-18 patterns (both power-on states) and over thousands of randomized
 longer sequences. It also **gates state coverage**: it BFS-enumerates the model's

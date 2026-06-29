@@ -14,7 +14,7 @@
 #   make test-config    verify the CONFIG word emitted into the built HEX
 #   make test-gpsim     register-level functional test of the HEX in gpsim
 #   make test           everything above (the full validation suite)
-#   make test-variants  run `make test` for ALL three output variants
+#   make test-variants  run `make test` for ALL five output variants
 #   make release        VERSION=vX.Y.Z: build+validate+stage a prebuilt release
 #   make help           print the full annotated target list
 #   make clean          remove the build directory
@@ -40,31 +40,61 @@ PIC_XTAL        ?= 16000000UL
 PIC_FLASH_WORDS ?= 256
 
 # --- output variant ----------------------------------------------------------
-# The firmware (bypass_mcu_pic10f320.c) supports three hardware output stages,
-# selected at compile time by exactly one OUTPUT_* macro. PIC_VARIANT picks one;
-# the resulting -DOUTPUT_* is threaded through EVERY target that compiles or
-# #includes the firmware (build, static analysis, equivalence, fault, gpsim,
-# coverage). PIC_ENGAGED_LATA is the full RA0..RA2 LATA pattern that variant
-# drives when ENGAGED (asserted by the gpsim test); RA0 (the LED) is bit 0 in all
-# three, which is why the host equivalence/fault tests are variant-independent.
-#   cd4053-simple : LED(RA0)+CD4053(RA1)             ENGAGED LATA = 0x3
-#   cd4053-mute   : LED(RA0)+CTL1(RA1)+CTL2(RA2)     ENGAGED LATA = 0x7
-#   tq2-relay     : LED(RA0)+RESET(RA1)+SET(RA2)     ENGAGED LATA = 0x1 (coils pulse, settle low)
+# The firmware (bypass_mcu_pic10f320.c) supports three hardware output STAGES,
+# selected at compile time by exactly one OUTPUT_* macro. Two of them (the analog
+# switch stages) additionally come in two CONTROL-PIN DRIVE POLARITIES, giving
+# five build variants in total:
+#   - CD4053 at 9-18 V is driven through a MOSFET inverter (MCU high == switch
+#     sees LOW), so its control pins are driven inverted (the default polarity);
+#   - the pin-compatible TMUX4053 runs at logic level and is driven DIRECTLY
+#     (-DBYPASS_X4053_DIRECT_DRIVE), so the SAME driver source emits the opposite
+#     control-pin levels. Only the analog-switch control pins flip; the LED (RA0),
+#     the debounce/switching logic, and the relay stage are unchanged.
+# PIC_VARIANT picks one; the resulting -DOUTPUT_* [+ -DBYPASS_X4053_DIRECT_DRIVE]
+# is threaded (via PIC_OUTPUT_DEF) through EVERY target that compiles or #includes
+# the firmware (build, static analysis, equivalence, actuation, fault, gpsim,
+# coverage). PIC_ENGAGED_LATA / PIC_BYPASS_LATA are the full RA0..RA2 LATA the
+# variant drives when ENGAGED / in BYPASS (asserted by the gpsim test). RA0 (the
+# LED) is bit 0 in all five, which is why the host equivalence/fault tests are
+# polarity-independent -- but the direct-drive variants invert the CONTROL pins,
+# so BYPASS no longer settles to 0x0 (hence the per-variant PIC_BYPASS_LATA).
+#   cd4053-simple   : LED(RA0)+CD4053(RA1)   inverted   BYPASS 0x0  ENGAGED 0x3
+#   tmux4053-simple : LED(RA0)+TMUX(RA1)     direct     BYPASS 0x2  ENGAGED 0x1
+#   cd4053-mute     : LED(RA0)+CTL1+CTL2      inverted   BYPASS 0x0  ENGAGED 0x7
+#   tmux4053-mute   : LED(RA0)+CTL1+CTL2      direct     BYPASS 0x6  ENGAGED 0x1
+#   tq2-relay       : LED(RA0)+RESET+SET      n/a        BYPASS 0x0  ENGAGED 0x1 (coils pulse, settle low)
 PIC_VARIANT     ?= cd4053-simple
 
+# PIC_POLARITY_DEF is empty for the inverting (CD4053 / relay) variants and adds
+# -DBYPASS_X4053_DIRECT_DRIVE for the direct-drive (TMUX4053) variants; it is
+# folded into PIC_OUTPUT_DEF below so it reaches every firmware-compiling site.
+PIC_POLARITY_DEF :=
 ifeq ($(PIC_VARIANT),cd4053-simple)
   PIC_OUTPUT_MACRO := OUTPUT_CD4053_SIMPLE
   PIC_ENGAGED_LATA := 0x3
+  PIC_BYPASS_LATA  := 0x0
+else ifeq ($(PIC_VARIANT),tmux4053-simple)
+  PIC_OUTPUT_MACRO := OUTPUT_CD4053_SIMPLE
+  PIC_POLARITY_DEF := -DBYPASS_X4053_DIRECT_DRIVE
+  PIC_ENGAGED_LATA := 0x1
+  PIC_BYPASS_LATA  := 0x2
 else ifeq ($(PIC_VARIANT),cd4053-mute)
   PIC_OUTPUT_MACRO := OUTPUT_CD4053_WITH_MUTE
   PIC_ENGAGED_LATA := 0x7
+  PIC_BYPASS_LATA  := 0x0
+else ifeq ($(PIC_VARIANT),tmux4053-mute)
+  PIC_OUTPUT_MACRO := OUTPUT_CD4053_WITH_MUTE
+  PIC_POLARITY_DEF := -DBYPASS_X4053_DIRECT_DRIVE
+  PIC_ENGAGED_LATA := 0x1
+  PIC_BYPASS_LATA  := 0x6
 else ifeq ($(PIC_VARIANT),tq2-relay)
   PIC_OUTPUT_MACRO := OUTPUT_TQ2_RELAY
   PIC_ENGAGED_LATA := 0x1
+  PIC_BYPASS_LATA  := 0x0
 else
-  $(error PIC_VARIANT must be one of: cd4053-simple cd4053-mute tq2-relay (got '$(PIC_VARIANT)'))
+  $(error PIC_VARIANT must be one of: cd4053-simple tmux4053-simple cd4053-mute tmux4053-mute tq2-relay (got '$(PIC_VARIANT)'))
 endif
-PIC_OUTPUT_DEF  := -D$(PIC_OUTPUT_MACRO)
+PIC_OUTPUT_DEF  := -D$(PIC_OUTPUT_MACRO) $(PIC_POLARITY_DEF)
 
 # --- sources + outputs -------------------------------------------------------
 SRC             := bypass_mcu_pic10f320.c
@@ -83,8 +113,9 @@ CPPCHECK        ?= cppcheck
 GPSIM           ?= gpsim
 HOST_CC         ?= gcc
 
-# gpsim processor name for the register-level functional test, and the full
-# LATA value when ENGAGED for cd4053-simple: LED(RA0) | CD4053(RA1) = 0x3.
+# gpsim processor name for the register-level functional test. The per-variant
+# settled ENGAGED / BYPASS LATA the test asserts come from PIC_ENGAGED_LATA /
+# PIC_BYPASS_LATA above (e.g. cd4053-simple ENGAGED LED(RA0)|CD4053(RA1) = 0x3).
 PIC_GPSIM_PROC  ?= p10f320
 
 # XC8 + DFP header search paths: XC8's base include supplies xc.h; the DFP
@@ -275,7 +306,7 @@ test-gpsim: all
 		echo "gpsim not installed; skipping gpsim register-level test"; exit 0; \
 	fi
 	@PIC_GPSIM_PROC=$(PIC_GPSIM_PROC) GPSIM=$(GPSIM) \
-		test/pic/run_gpsim_test.sh $(HEX) $(PIC_ENGAGED_LATA)
+		test/pic/run_gpsim_test.sh $(HEX) $(PIC_ENGAGED_LATA) $(PIC_BYPASS_LATA)
 	@PIC_GPSIM_PROC=$(PIC_GPSIM_PROC) GPSIM=$(GPSIM) \
 		test/pic/run_gpsim_power_on_pressed.sh $(HEX)
 
@@ -569,12 +600,14 @@ test: all analyze test-config test-host test-formal test-equiv test-actuation te
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
 # Run the full validation suite for EVERY output variant in turn. `make test`
-# alone covers just the default PIC_VARIANT; this sweeps all three. The debounce
-# logic is identical across variants, but each has a distinct output driver,
-# sanity-check pin mask, flash budget, and gpsim ENGAGED LATA pattern, so each
-# is built and validated independently (the parent project validates all
-# variants the same way).
-PIC_VARIANTS_ALL ?= cd4053-simple cd4053-mute tq2-relay
+# alone covers just the default PIC_VARIANT; this sweeps all five. The debounce
+# logic is identical across variants, but each pairs a distinct output driver /
+# control-pin drive polarity with its own sanity-check pin mask, flash budget,
+# and gpsim BYPASS/ENGAGED LATA pattern, so each is built and validated
+# independently (the parent project validates all variants the same way). The two
+# tmux4053-* variants reuse their cd4053-* sibling's driver source with the
+# direct-drive polarity, so the switching logic can never drift between them.
+PIC_VARIANTS_ALL ?= cd4053-simple tmux4053-simple cd4053-mute tmux4053-mute tq2-relay
 test-variants:
 	@for v in $(PIC_VARIANTS_ALL); do \
 		echo "===================== VARIANT $$v ====================="; \
@@ -606,7 +639,7 @@ print-%:
 #   1. refuses to run unless the working tree is clean and EVERY required tool
 #      is present (the inverse of the dev-time "skip cleanly" behaviour -- a
 #      release must never green-light on a tool that silently did nothing);
-#   2. clean-builds all three output-variant images;
+#   2. clean-builds all five output-variant images;
 #   3. runs `make test-variants` and ALL soak combos (one per variant) in parallel;
 #   4. stages release/<VERSION>/ with the .hex images, SHA256SUMS, a provenance
 #      MANIFEST (toolchain versions, per-image flash usage / CONFIG word, flashing

@@ -19,8 +19,9 @@
 //
 // Output convention (both sides): the status-LED bit RA0 (LATA & 0x01) -- 0x00
 // when BYPASS, 0x01 when ENGAGED. RA0 is the one output that means the same thing
-// across all three variants (cd4053-simple/-with-mute/tq2-relay); the variant-
-// specific RA1/RA2 control pattern is asserted on real silicon by the gpsim test.
+// across every variant -- the analog-switch drive polarity (CD4053 vs TMUX4053)
+// flips only the RA1/RA2 control pins, never the LED; that variant-specific
+// RA1/RA2 control pattern is asserted on real silicon by the gpsim test.
 // Stimulus convention: 1 = pressed (RA3 low), 0 = released.
 
 #include <stdint.h>

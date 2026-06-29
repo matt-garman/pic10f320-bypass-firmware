@@ -51,6 +51,20 @@
 
 
 
+// see parent project (https://github.com/matt-garman/mcu-bypass-firmware)
+// src/bypass_output_x4053_polarity.h for details; summary:
+//   - CD4053 at 9-18V: MCU drives a MOSFET inverter -> MCU high == 4053 sees LOW
+//   - TMUX4053 at logic level: MCU drives the control pin directly
+#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
+#  define hw_x4053_ctl_high(pin)  hw_pin_set_high(pin)
+#  define hw_x4053_ctl_low(pin)   hw_pin_set_low(pin)
+#else                                  // CD4053 + MOSFET inverter (default)
+#  define hw_x4053_ctl_high(pin)  hw_pin_set_low(pin)
+#  define hw_x4053_ctl_low(pin)   hw_pin_set_high(pin)
+#endif
+
+
+
 // Bits that must be OUTPUTS (RA0|RA1|RA2). Same macro NAME as the AVR map (the
 // shared drivers consume it); the value is the output-bit set, interpreted by
 // the per-MCU hw_configure_output_pins() (PIC: TRISA bit 0 = output). ("DDR" is
@@ -223,13 +237,13 @@ static uint8_t hw_is_sanity_check_failed(void) {
 // CD4053_PIN high -> mosfet on  -> 4053 control pins low
 // CD4053_PIN low  -> mosfet off -> 4053 control pins high
 static void hw_set_bypass_state(void) {
-    hw_led_pin_set_low();        // dark status LED
-    hw_pin_set_low(CD4053_PIN);  // set CD4053 pin low
+    hw_led_pin_set_low();          // dark status LED
+    hw_x4053_ctl_high(CD4053_PIN); // set CD4053 pin high
 }
 
 static void hw_set_engaged_state(void) {
-    hw_led_pin_set_high();       // light status LED
-    hw_pin_set_high(CD4053_PIN); // set CD4053 pin high
+    hw_led_pin_set_high();         // light status LED
+    hw_x4053_ctl_low(CD4053_PIN);  // set CD4053 pin low
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -267,27 +281,27 @@ static uint8_t hw_is_sanity_check_failed(void) {
 //          - immediately flips to bypass
 //
 static void hw_set_bypass_state(void) {
-    hw_pin_set_high(CD4053_CTL1); // re-assert previous ENGAGED state
-    hw_pin_set_high(CD4053_CTL2);
+    hw_x4053_ctl_low(CD4053_CTL1); // re-assert previous ENGAGED state
+    hw_x4053_ctl_low(CD4053_CTL2);
 
     hw_led_pin_set_low(); // dark status LED
 
-    hw_pin_set_low(CD4053_CTL1); // MUTE
+    hw_x4053_ctl_high(CD4053_CTL1); // MUTE
     __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
 
-    hw_pin_set_low(CD4053_CTL2); // un-mute in BYPASS state
+    hw_x4053_ctl_high(CD4053_CTL2); // un-mute in BYPASS state
 }
 
 static void hw_set_engaged_state(void) {
-    hw_pin_set_low(CD4053_CTL1); // re-assert previous BYPASS state
-    hw_pin_set_low(CD4053_CTL2);
+    hw_x4053_ctl_high(CD4053_CTL1); // re-assert previous BYPASS state
+    hw_x4053_ctl_high(CD4053_CTL2);
 
     hw_led_pin_set_high(); // light status LED
 
-    hw_pin_set_high(CD4053_CTL2); // MUTE
+    hw_x4053_ctl_low(CD4053_CTL2); // MUTE
     __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
 
-    hw_pin_set_high(CD4053_CTL1); // un-mute in ENGAGED state
+    hw_x4053_ctl_low(CD4053_CTL1); // un-mute in ENGAGED state
 }
 
 //////////////////////////////////////////////////////////////////////////////

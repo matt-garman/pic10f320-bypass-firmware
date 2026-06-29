@@ -9,8 +9,9 @@ name: CI
 # 0.32.x, cppcheck 2.13, cbmc, gcc 13) as closely as the distro packages allow.
 #
 # Most of the matrix lives inside the Makefile: a single `make test-variants`
-# already exercises all three output variants (cd4053-simple, cd4053-mute,
-# tq2-relay), each through the whole `make test` gate -- static analysis
+# already exercises all five output variants (cd4053-simple, tmux4053-simple,
+# cd4053-mute, tmux4053-mute, tq2-relay), each through the whole `make test` gate
+# -- static analysis
 # (cppcheck + MISRA-C:2012), the golden-model host/formal suite (unit + property
 # + exhaustive state-space + symbolic + CBMC), the firmware<->model equivalence
 # trace, the firmware fault-injection harness, the CONFIG-word check, the gpsim
@@ -50,7 +51,7 @@ env:
 
 jobs:
   # -------------------------------------------------------------------------
-  # Gating job: the full validation suite across all three output variants.
+  # Gating job: the full validation suite across all five output variants.
   # This is the "build passing" badge. `make test-variants` runs `make test`
   # (analyze + host/formal + equiv + fault + CONFIG word + gpsim + coverage)
   # once per variant.

@@ -27,8 +27,8 @@
 #      EVERY required tool present. Unlike the dev-time targets (which skip
 #      cleanly when a tool is missing), a release FAILS LOUD on any absence -- a
 #      gate must never go green on a check that silently did nothing.
-#   1. Clean-build every output-variant image (cd4053-simple, cd4053-mute,
-#      tq2-relay).
+#   1. Clean-build every output-variant image (cd4053-simple, tmux4053-simple,
+#      cd4053-mute, tmux4053-mute, tq2-relay).
 #   2. Run `make test-variants` (the full per-variant gate: analyze + host/formal
 #      + equivalence + fault + CONFIG word + gpsim + coverage) and `make
 #      test-mutation` (the mutation suite). These are the full pre-hardware gates.
@@ -116,7 +116,7 @@ cd "$REPO_ROOT"
 
 mkv() { make -s print-"$1"; }      # echo one Makefile variable
 
-VARIANTS=$(mkv PIC_VARIANTS_ALL)   # cd4053-simple cd4053-mute tq2-relay
+VARIANTS=$(mkv PIC_VARIANTS_ALL)   # cd4053-simple tmux4053-simple cd4053-mute tmux4053-mute tq2-relay
 FW_BASE=$(mkv FW_BASE)             # bypass_mcu
 BUILD_DIR=$(mkv BUILD_DIR)         # build_pic
 PIC_TAG=$(mkv PIC_TAG)             # pic10f320

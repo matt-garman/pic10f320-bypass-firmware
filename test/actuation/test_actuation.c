@@ -23,13 +23,18 @@
 //   cannot see. The shared RA0 (LED) behaviour remains the equivalence test's job;
 //   this is purely about the variant control pins DURING the blocking pulse.
 //
-// PIN MAP (bypass_mcu_pic10f320.c): RA0=LED=0x1, RA1=0x2, RA2=0x4.
+// PIN MAP (bypass_mcu_pic10f320.c): RA0=LED=0x1, RA1=0x2, RA2=0x4. The analog-
+// switch variants build the same driver source in two control-pin drive
+// polarities (inverting CD4053 vs direct-drive TMUX4053, -DBYPASS_X4053_DIRECT_
+// DRIVE), which flips the control-pin LATA bits; the LED (RA0) and relay stage
+// are unchanged. Patterns below are the inverting (cd4053-*) values; the tmux4053-*
+// siblings invert the control bits (see the per-variant #if blocks).
 //   cd4053-mute : CTL1=RA1, CTL2=RA2. The mute drops the not-yet-switched control,
 //                 waits, then switches. engage mid: LED|CTL2 = 0x5; bypass mid: CTL2 = 0x4.
 //   tq2-relay   : RESET=RA1, SET=RA2. engage pulses SET (LED|SET = 0x5); bypass
 //                 pulses RESET (RESET = 0x2). Coils settle low, so the settled
 //                 ENGAGED LATA is 0x1 -- all gpsim/equiv can confirm.
-//   cd4053-simple: no blocking actuation -> zero snapshots.
+//   cd4053-simple: no blocking actuation -> zero snapshots (both polarities).
 
 #include <stdint.h>
 #include <stdio.h>
@@ -43,15 +48,33 @@ extern int      fw_tick_count(void);   // settled per-tick LATA samples availabl
 extern uint8_t  fw_tick_lata(int i);   // full SETTLED LATA at end of tick i
 
 // Per-variant SETTLED LATA pattern (full byte, sampled at end-of-tick). These
-// match the gpsim functional test's PIC_ENGAGED_LATA (cd4053-simple 0x3,
-// cd4053-mute 0x7, tq2-relay 0x1); BYPASS settles to 0x0 for every variant (mute
-// released / coils low, LED off, and the cd4053-simple spare RA2 held low).
+// match the gpsim functional test's PIC_ENGAGED_LATA / PIC_BYPASS_LATA. The
+// analog-switch variants come in two control-pin drive polarities: the inverting
+// CD4053 (MOSFET inverter; control pins settle LOW in bypass) and the direct-drive
+// TMUX4053 (-DBYPASS_X4053_DIRECT_DRIVE; the SAME driver source emits the opposite
+// control-pin levels, so the control pins settle HIGH in bypass). The LED (RA0) is
+// on when ENGAGED / off in BYPASS for every variant regardless of polarity.
+//   cd4053-simple   : ENGAGED 0x3 (LED+RA1)  BYPASS 0x0
+//   tmux4053-simple : ENGAGED 0x1 (LED only) BYPASS 0x2 (RA1 high)
+//   cd4053-mute     : ENGAGED 0x7 (LED+RA1+RA2) BYPASS 0x0
+//   tmux4053-mute   : ENGAGED 0x1 (LED only) BYPASS 0x6 (RA1+RA2 high)
+//   tq2-relay       : ENGAGED 0x1 (LED only; coils pulse, settle low) BYPASS 0x0
 #if defined(OUTPUT_CD4053_SIMPLE)
-#  define EXP_ENGAGED_LATA 0x3u   // LED(RA0) + CD4053(RA1); RA2 spare low
-#  define EXP_BYPASS_LATA  0x0u
+#  if defined(BYPASS_X4053_DIRECT_DRIVE)
+#    define EXP_ENGAGED_LATA 0x1u   // LED(RA0); TMUX(RA1) driven low when engaged
+#    define EXP_BYPASS_LATA  0x2u   // TMUX(RA1) driven high in bypass; LED off
+#  else
+#    define EXP_ENGAGED_LATA 0x3u   // LED(RA0) + CD4053(RA1); RA2 spare low
+#    define EXP_BYPASS_LATA  0x0u
+#  endif
 #elif defined(OUTPUT_CD4053_WITH_MUTE)
-#  define EXP_ENGAGED_LATA 0x7u   // LED(RA0) + CTL1(RA1) + CTL2(RA2)
-#  define EXP_BYPASS_LATA  0x0u
+#  if defined(BYPASS_X4053_DIRECT_DRIVE)
+#    define EXP_ENGAGED_LATA 0x1u   // LED(RA0); CTL1/CTL2 driven low when engaged
+#    define EXP_BYPASS_LATA  0x6u   // CTL1(RA1) + CTL2(RA2) driven high in bypass
+#  else
+#    define EXP_ENGAGED_LATA 0x7u   // LED(RA0) + CTL1(RA1) + CTL2(RA2)
+#    define EXP_BYPASS_LATA  0x0u
+#  endif
 #elif defined(OUTPUT_TQ2_RELAY)
 #  define EXP_ENGAGED_LATA 0x1u   // LED(RA0); both coils settle low
 #  define EXP_BYPASS_LATA  0x0u
@@ -111,13 +134,32 @@ int main(void) {
     }
 
 #if defined(OUTPUT_CD4053_SIMPLE)
+#  if defined(BYPASS_X4053_DIRECT_DRIVE)
+    printf("actuation-sequence (tmux4053-simple): expect no blocking actuation\n");
+#  else
     printf("actuation-sequence (cd4053-simple): expect no blocking actuation\n");
+#  endif
     CHECK(count == 0,
-          "cd4053-simple must not call __delay_ms (no blocking actuation), got %d snapshot(s)",
+          "simple analog-switch variant must not call __delay_ms (no blocking "
+          "actuation), got %d snapshot(s)",
           count);
 
 #elif defined(OUTPUT_CD4053_WITH_MUTE)
+    // Mid-mute snapshot pattern (sampled while the mute is asserted, before the
+    // un-mute write). The mute drops the not-yet-switched control to the level the
+    // switch hears as muted; at the MCU pin that level flips with the drive
+    // polarity. Inverting CD4053 / direct-drive TMUX4053 mirror each other:
+    //   engage mid : CD4053 0x5 (LED+CTL2 high, CTL1 low)  TMUX 0x3 (LED+CTL1 high, CTL2 low)
+    //   bypass mid : CD4053 0x4 (CTL2 high, CTL1 low, LED off) TMUX 0x2 (CTL1 high, CTL2 low)
+#  if defined(BYPASS_X4053_DIRECT_DRIVE)
+#    define EXP_ENGAGE_MID 0x3u
+#    define EXP_BYPASS_MID 0x2u
+    printf("actuation-sequence (tmux4053-mute): mid-mute LATA snapshots\n");
+#  else
+#    define EXP_ENGAGE_MID 0x5u
+#    define EXP_BYPASS_MID 0x4u
     printf("actuation-sequence (cd4053-mute): mid-mute LATA snapshots\n");
+#  endif
     // Snapshot order: [0] power-on init-bypass, [1] engage, [2] bypass.
     CHECK(count == 3,
           "expected 3 actuations (init-bypass, engage, bypass), got %d", count);
@@ -126,15 +168,15 @@ int main(void) {
               "engage mute width should be 5 ms, got %u", fw_actuation_ms(1));
         CHECK(fw_actuation_ms(2) == 5u,
               "bypass mute width should be 5 ms, got %u", fw_actuation_ms(2));
-        CHECK(fw_actuation_lata(1) == 0x5u,
-              "engage mid-mute LATA should be 0x5 (LED+CTL2 high, CTL1 muted low), got 0x%X",
-              (unsigned)fw_actuation_lata(1));
-        CHECK(fw_actuation_lata(2) == 0x4u,
-              "bypass mid-mute LATA should be 0x4 (CTL2 high, CTL1 muted low, LED off), got 0x%X",
-              (unsigned)fw_actuation_lata(2));
-        CHECK(fw_actuation_lata(0) == 0x4u,
-              "power-on init-bypass mid-mute LATA should be 0x4, got 0x%X",
-              (unsigned)fw_actuation_lata(0));
+        CHECK(fw_actuation_lata(1) == EXP_ENGAGE_MID,
+              "engage mid-mute LATA should be 0x%X (one control muted mid-switch), got 0x%X",
+              (unsigned)EXP_ENGAGE_MID, (unsigned)fw_actuation_lata(1));
+        CHECK(fw_actuation_lata(2) == EXP_BYPASS_MID,
+              "bypass mid-mute LATA should be 0x%X (one control muted mid-switch, LED off), got 0x%X",
+              (unsigned)EXP_BYPASS_MID, (unsigned)fw_actuation_lata(2));
+        CHECK(fw_actuation_lata(0) == EXP_BYPASS_MID,
+              "power-on init-bypass mid-mute LATA should be 0x%X, got 0x%X",
+              (unsigned)EXP_BYPASS_MID, (unsigned)fw_actuation_lata(0));
     }
 
 #elif defined(OUTPUT_TQ2_RELAY)

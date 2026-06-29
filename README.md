@@ -4,11 +4,16 @@
 
 Scaled-down, single-file bypass/debounce firmware for the
 **PIC10F320**, supporting all three of the parent project's output
-stages: **CD4053-simple**, **CD4053-with-mute**, and the **TQ2
-latching relay**.  Output scheme is selected at compile time with
-one `OUTPUT_*` macro (see the Build section). It responds to a
-footswitch, debounces it, toggles effect bypass/engage, and drives a
-status LED.
+stages — **analog-switch simple**, **analog-switch with mute**, and
+the **TQ2 latching relay** — in **five build variants**: each
+analog-switch stage comes in two control-pin drive polarities, an
+inverting **CD4053** (driven through a MOSFET inverter at 9–18 V) and
+a direct-drive **TMUX4053** (driven at logic level), giving
+**cd4053-simple / tmux4053-simple / cd4053-mute / tmux4053-mute /
+tq2-relay**.  The output scheme is selected at compile time with one
+`OUTPUT_*` macro plus an optional polarity flag (see the Build
+section). It responds to a footswitch, debounces it, toggles effect
+bypass/engage, and drives a status LED.
 
 
 ## Relationship to the parent project
@@ -28,9 +33,12 @@ This is intentionally a separate child project of
   The assurance the parent gets *for free* by compiling its verified core straight
   into the firmware is instead **recovered here by proving the inlined firmware
   behaviourally identical to that same verified core** (see Validation).
-- Current footprint, per output variant (all fit the 256-word budget):
+- Current footprint, per output stage (all fit the 256-word budget):
   **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
-  **tq2-relay 233 (91.0%)**; 10-11 / 64 bytes RAM.
+  **tq2-relay 233 (91.0%)**; 10-11 / 64 bytes RAM. The direct-drive
+  **tmux4053-\*** variants build the same driver source with the
+  control-pin polarity flipped — only `bsf`↔`bcf` (both single-word)
+  swap — so each matches its `cd4053-*` sibling's word count.
 
 **Validation:** because the firmware inlines its logic, it is
 validated in layers (see `test/README.md`): the parent's pure
@@ -46,16 +54,19 @@ The per-variant control pins (RA1/RA2) are pinned by a host
 `LATA` at every tick; so even cd4053-simple's lone control pin, which
 has no blocking pulse for a snapshot to catch, is verified on the host;
 plus the mute/relay drivers' *mid-actuation* sequencing and pulse width
-that neither the RA0 trace nor a settled snapshot can see; the real HEX
-is independently re-checked on a simulated core in gpsim (which asserts
-each variant's full ENGAGED control-pin pattern); and
+that neither the RA0 trace nor a settled snapshot can see. Because the
+direct-drive (TMUX4053) variants *invert* those control pins — so
+BYPASS no longer settles to `0x0` — both the host actuation check and
+the gpsim test assert each variant's full BYPASS *and* ENGAGED
+control-pin pattern, catching a wrong drive polarity. The real HEX is
+independently re-checked on a simulated core in gpsim; and
 the real firmware's **defensive layer** (the SEU/EMI sanity gate and
 watchdog-reset path, which valid stimulus never reaches) is
 exercised by a host **fault-injection** harness. Static analysis
 (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
 verification, mutation testing, and model + firmware coverage gates
 round it out. `make test` runs all of it for the selected variant;
-`make test-variants` sweeps all three. A long-run `make test-soak`
+`make test-variants` sweeps all five. A long-run `make test-soak`
 (libgpsim) and an optional KLEE pass (`make test-symbolic-klee`) are
 available as standalone targets.
 
@@ -88,7 +99,10 @@ The debounce algorithm here is a **manual instantiation** of the parent's
 verified pure core — byte-for-byte identical arithmetic and state transitions,
 merely re-packaged (inlined, global-mutating) to fit flash. The three output
 drivers are likewise instantiations of the parent's per-variant output stages
-(`bypass_output_*.c`), inlined into the firmware's `#if defined(OUTPUT_*)` blocks.
+(`bypass_output_*.c`), inlined into the firmware's `#if defined(OUTPUT_*)` blocks;
+the two analog-switch stages also carry the parent's CD4053-vs-TMUX4053 control-pin
+drive polarity (`BYPASS_X4053_DIRECT_DRIVE`), which is what turns three stages into
+five build variants.
 
 - **Derived from:** `mcu-bypass-firmware` @ commit
   `7384215` (`73842153b3764c0c9e8771a40502d15edd3386c4`).
@@ -112,6 +126,7 @@ shared at the source level:
 | State machine             | `debounce_step()` in `bypass_pure.c`       | inlined `switch` in `main()`     |
 | Power-on init             | `debounce_init_context()` in `bypass_pure.c` | inlined in `init()`            |
 | Output stages             | `bypass_output_{cd4053_simple,cd4053_with_mute,tq2_l2_5v_relay}.c` | inlined `#if defined(OUTPUT_*)` blocks |
+| Analog-switch polarity    | `bypass_output_x4053_polarity.h` (`BYPASS_X4053_DIRECT_DRIVE`) | inlined `hw_x4053_ctl_high/low` macros |
 
 The pin map (RA3 footswitch, RA0 LED, RA1/RA2 control) and the CONFIG word are
 PIC-local and are *not* shared with the parent.
@@ -132,10 +147,16 @@ make clean    # remove the build directory
 Select the output variant with `PIC_VARIANT` (default `cd4053-simple`):
 
 ```sh
-make PIC_VARIANT=cd4053-simple   # LED(RA0) + CD4053(RA1)
-make PIC_VARIANT=cd4053-mute     # LED(RA0) + CTL1(RA1) + CTL2(RA2), pre-switch mute
-make PIC_VARIANT=tq2-relay       # LED(RA0) + RESET(RA1) + SET(RA2), latching relay
+make PIC_VARIANT=cd4053-simple    # LED(RA0) + CD4053(RA1), inverting (MOSFET) drive
+make PIC_VARIANT=tmux4053-simple  # as above but direct-drive TMUX4053 (control pins inverted)
+make PIC_VARIANT=cd4053-mute      # LED(RA0) + CTL1(RA1) + CTL2(RA2), pre-switch mute
+make PIC_VARIANT=tmux4053-mute    # as above but direct-drive TMUX4053 (control pins inverted)
+make PIC_VARIANT=tq2-relay        # LED(RA0) + RESET(RA1) + SET(RA2), latching relay
 ```
+
+The `tmux4053-*` variants add `-DBYPASS_X4053_DIRECT_DRIVE`; they share their
+`cd4053-*` sibling's driver source and switching logic, differing only in the
+analog-switch control-pin drive polarity.
 
 Override the toolchain paths on the command line if your install differs:
 
