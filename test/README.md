@@ -43,6 +43,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
+| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s blocking mute/relay drivers assert the correct control pins (and pulse width) *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-state-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
@@ -73,6 +74,36 @@ It also **auto-guards against threshold drift**: the firmware defines its
 `PRESSED_THRESH`/`RELEASE_THRESH` inline and the model defines its own
 (`model/bypass_config.h`); if they ever disagree, the traces diverge and this
 test fails. (Verified with a deliberate-mismatch negative control.)
+
+## The actuation-sequence test (`actuation/`)
+
+The equivalence test compares only RA0 (the status LED), and the gpsim test only
+samples *settled* register state. For the two **blocking** output variants —
+`cd4053-mute` and `tq2-relay` — that leaves a blind spot: each actuation asserts
+the mute / energises a relay coil, calls `__delay_ms()`, then releases it, and the
+*transient* mid-pulse output is exactly what those layers cannot see. A swapped
+relay set/reset coil (the relay latches backwards, inverting the audio path
+relative to the LED) or a defeated mute window settles to the **same** pin state,
+so it passes both. That is a real manual-porting hazard here, because the pin map
+and the per-variant output stages are hand-written in this project (PIC-local, not
+shared with the parent) — the same class of inlining bug `test-equiv` catches for
+the debounce core. Mutation testing confirmed the gap before this layer existed.
+
+`actuation/test_actuation.c` reuses the equivalence firmware harness, but the mock
+`<xc.h>` now routes the firmware's `__delay_ms()` through a hook so `fw_harness.c`
+snapshots `LATA` at the instant of every actuation. The test drives one full round
+trip (power-on bypass → engage → bypass) and asserts, per variant, the exact
+mid-actuation pin pattern **and** the pulse width:
+
+- **cd4053-mute**: engage muted-mid `LATA=0x5` (LED+CTL2 high, CTL1 held low),
+  bypass muted-mid `0x4`, 5 ms mute window;
+- **tq2-relay**: engage pulses the SET coil (`0x5` = LED+RA2), bypass pulses the
+  RESET coil (`0x2` = RA1), 12 ms coil pulse;
+- **cd4053-simple**: no blocking actuation, so the test asserts *zero* snapshots.
+
+RA0 (the LED) remains the equivalence test's job; this layer is purely the variant
+control pins **during** the blocking pulse (the power-on init bypass pulse is
+captured and asserted too).
 
 ## The fault-injection test (`fault/`)
 
@@ -122,9 +153,11 @@ RA0 (LED) checks hold for every variant.
 Confirms the suite has teeth: it injects deliberate faults into the firmware and
 the model on a throwaway copy and checks each is detected. Firmware logic mutants
 are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
-(e.g. a neutered pull-up or output-pin check) by `test-fault`; model mutants by
-`test-host` / `test-model-check`. Not part of `make test` (it rebuilds per
-mutant). Currently 19 mutants, all killed.
+(e.g. a neutered pull-up or output-pin check) by `test-fault`; firmware
+blocking-actuation mutants (a swapped relay set/reset coil, a defeated mute
+window) by `test-actuation`; model mutants by `test-host` / `test-model-check`.
+Not part of `make test` (it rebuilds per mutant). Currently 22 mutants, all
+killed.
 
 ## Why CONFIG-word verification matters
 

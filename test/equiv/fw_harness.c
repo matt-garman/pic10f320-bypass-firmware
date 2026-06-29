@@ -50,6 +50,31 @@ static int            g_tick;  // current tick index
 static uint8_t       *g_trace; // out: LATA & 0x03 captured per tick
 static int            g_clrwdt_calls;
 
+// --- actuation-sequence capture ----------------------------------------------
+// The mute/relay drivers call __delay_ms() once per actuation, AFTER asserting the
+// mute / energising the coil and BEFORE releasing it -- so LATA at that instant is
+// the firmware's transient (mid-pulse) output. The mock routes __delay_ms() here
+// (test/equiv/xc.h); we record LATA + the requested delay for each call so
+// test/actuation can assert the per-variant mid-actuation pin pattern -- the part
+// the equivalence (RA0-only) and gpsim (settled-state-only) tests cannot see.
+// The equivalence run itself ignores these; cd4053-simple never calls __delay_ms.
+#define FW_ACTUATION_MAX 64
+static uint8_t  g_act_lata[FW_ACTUATION_MAX];
+static unsigned g_act_ms[FW_ACTUATION_MAX];
+static int      g_act_count;
+
+void bypass_on_delay_ms(unsigned ms) {
+    if (g_act_count < FW_ACTUATION_MAX) {
+        g_act_lata[g_act_count] = LATA;
+        g_act_ms[g_act_count]   = ms;
+        g_act_count++;
+    }
+}
+
+int      fw_actuation_count(void) { return g_act_count; }
+uint8_t  fw_actuation_lata(int i) { return (i >= 0 && i < g_act_count) ? g_act_lata[i] : 0xFFu; }
+unsigned fw_actuation_ms(int i)   { return (i >= 0 && i < g_act_count) ? g_act_ms[i]   : 0u; }
+
 // Present the footswitch level for tick i on RA3 (pressed => RA3 low).
 static void present_footswitch(int i) {
     if (g_fsw[i]) { PORTA &= (uint8_t)~0x08u; } // pressed -> low
@@ -91,6 +116,7 @@ static void on_alarm(int sig) {
 // fsw[0] (power-on level).
 void fw_run(const uint8_t *fsw, int n, uint8_t *trace) {
     g_fsw = fsw; g_n = n; g_tick = 0; g_trace = trace; g_clrwdt_calls = 0;
+    g_act_count = 0; // reset the per-run actuation-snapshot log
 
     // Reset SFR storage so each run starts from a clean power-on.
     LATA = PORTA = TRISA = ANSELA = WPUA = PR2 = T2CON = 0u;

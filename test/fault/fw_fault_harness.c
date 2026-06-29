@@ -61,6 +61,12 @@ PIR1bits_t *bypass_pir1(void) {
     return &g_pir1;
 }
 
+// The mute/relay drivers call __delay_ms() mid-actuation (routed here by the mock
+// <xc.h>). The fault harness only cares about the sanity gate / reset behaviour,
+// not the output-pin timing, so it elides the delay. (The actuation pin pattern is
+// verified separately by test/actuation.)
+void bypass_on_delay_ms(unsigned ms) { (void)ms; }
+
 // --- harness state ----------------------------------------------------------
 typedef enum { MODE_DRIVE, MODE_FAULT } harness_mode_t;
 static harness_mode_t g_mode;

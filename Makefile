@@ -168,7 +168,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
-        test-cbmc test-equiv test-soak \
+        test-cbmc test-equiv test-actuation test-soak \
         test-fault test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
@@ -378,6 +378,25 @@ test-equiv:
 		-o $(BUILD_DIR)/test_equiv
 	@$(BUILD_DIR)/test_equiv
 
+# --- firmware actuation-sequence test ----------------------------------------
+# The cd4053-mute and tq2-relay drivers BLOCK on __delay_ms() mid-actuation -- after
+# asserting the mute / energising a relay coil, before releasing it. test-equiv
+# only watches RA0 and test-gpsim only samples the SETTLED register state, so
+# neither can see the transient: a swapped relay set/reset coil (relay latches
+# backwards) or a defeated mute settles to the same state and passes both. This
+# routes the firmware's __delay_ms() through the mock's hook (test/equiv/xc.h) so
+# fw_harness.c snapshots LATA at each actuation, then asserts the per-variant
+# mid-actuation pin pattern + pulse width. Reuses the equiv firmware harness
+# (fw_harness.o); cd4053-simple has no blocking actuation, so the test asserts it
+# produces zero snapshots.
+test-actuation:
+	@mkdir -p $(BUILD_DIR)
+	@$(HOST_CC) -std=c11 -O2 -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF) \
+		-Itest/equiv -c test/equiv/fw_harness.c -o $(BUILD_DIR)/fw_harness.o
+	@$(HOST_CC) $(HOST_CFLAGS) $(PIC_OUTPUT_DEF) -c test/actuation/test_actuation.c -o $(BUILD_DIR)/test_actuation_drv.o
+	@$(HOST_CC) $(BUILD_DIR)/fw_harness.o $(BUILD_DIR)/test_actuation_drv.o -o $(BUILD_DIR)/test_actuation
+	@$(BUILD_DIR)/test_actuation
+
 # --- firmware fault-injection / defensive-path tests -------------------------
 # Run the REAL firmware on the host and prove its fault-detection layer works:
 # the per-tick SEU/EMI sanity gate forces a watchdog reset on a corrupted state
@@ -540,7 +559,7 @@ test-mutation:
 	./test/run_mutation_tests.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-fault test-gpsim \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -626,6 +645,7 @@ help:
 	@echo "  test-cbmc       CBMC SAT/SMT proof of the vendored model (if installed)"
 	@echo "  test-formal     model-check + symbolic + cbmc"
 	@echo "  test-equiv      prove the real firmware == model, tick-for-tick"
+	@echo "  test-actuation  verify the mute/relay mid-actuation pin pattern + pulse width"
 	@echo "  test-fault      corrupt state/SFRs, verify the WDT-reset defensive path"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"

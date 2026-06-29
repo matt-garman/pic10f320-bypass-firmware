@@ -49,6 +49,15 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	test-gpsim	FW CD4053 control routed the wrong way (RA1 stuck low); ENGAGED LATA!=0x3"
 "bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-gpsim	FW footswitch read polarity inverted (toggles on release, not press)"
+# --- firmware: blocking-actuation sequencing (killed by the actuation test) --------
+# These corrupt the mid-actuation output of the BLOCKING variants (relay coil
+# routing / the mute window). They settle to the SAME pin state, so test-equiv
+# (RA0 only) and test-gpsim (settled state only) miss them entirely; only
+# test-actuation, which snapshots LATA DURING the pulse, kills them. The target
+# field carries the variant (the gap exists only for mute/relay, not cd4053-simple).
+"bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_SET_PIN);   // pulse set coil@hw_pin_set_high(RELAY_RESET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay ENGAGE pulses the RESET coil instead of SET (relay latches backwards; settles to same LATA, so equiv/gpsim miss it)"
+"bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil@hw_pin_set_high(RELAY_SET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
+"bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------
 "test/model/bypass_pure.c	s@{ ++counter; }@{ --counter; }@	test-host	MODEL integrator increment becomes decrement"
 "test/model/bypass_pure.c	s@ctx.debounce_counter >= PRESSED_THRESH@ctx.debounce_counter > PRESSED_THRESH@	test-host	MODEL press threshold off-by-one (>= becomes >)"
@@ -72,11 +81,23 @@ copy_tree() {
 echo "=== mutation testing: baseline sanity check ==="
 BASE="$(mktemp -d)"; copy_tree "$BASE"
 base_fail=0
-for t in test-host test-model-check test-equiv test-fault; do
+for t in test-host test-model-check test-equiv test-actuation test-fault; do
     if make -C "$BASE" "$t" >/dev/null 2>&1; then
         echo "baseline $t: PASS"
     else
         echo "ERROR: baseline $t FAILS on the unmutated tree; aborting." >&2
+        base_fail=1
+    fi
+done
+# The actuation mutants target the BLOCKING variants (mute/relay), so confirm the
+# unmutated tree also passes test-actuation for those (it is pure host gcc -- always
+# available, never skipped). Unquoted on purpose: the "PIC_VARIANT=... target" form
+# word-splits into separate make arguments.
+for vt in "PIC_VARIANT=tq2-relay test-actuation" "PIC_VARIANT=cd4053-mute test-actuation"; do
+    if make -C "$BASE" $vt >/dev/null 2>&1; then
+        echo "baseline $vt: PASS"
+    else
+        echo "ERROR: baseline $vt FAILS on the unmutated tree; aborting." >&2
         base_fail=1
     fi
 done
@@ -112,7 +133,10 @@ for entry in "${MUTATIONS[@]}"; do
         errored=$((errored + 1)); rm -rf "$work"; continue
     fi
 
-    if make -C "$work" "$target" >/dev/null 2>&1; then
+    # $target is unquoted on purpose: a mutant may carry a variant in its target
+    # field (e.g. "PIC_VARIANT=tq2-relay test-actuation"), which must word-split
+    # into separate make arguments. Target fields never contain globs.
+    if make -C "$work" $target >/dev/null 2>&1; then
         echo "[$idx] SURVIVED ($target): $desc"; survived=$((survived + 1)); SURVIVORS+=("$file :: $desc")
     else
         echo "[$idx] killed   ($target): $desc"; killed=$((killed + 1))

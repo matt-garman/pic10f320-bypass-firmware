@@ -39,10 +39,12 @@ proven behaviorally identical to that model — tick-for-tick over exhaustive +
 random stimulus on the host (comparing the status-LED bit RA0, the one output
 that means the same thing for every variant, with a gate that the stimulus
 visits *every* reachable model state), and on a simulated core in gpsim (which
-also asserts each variant's full ENGAGED control-pin pattern); and the real
-firmware's **defensive layer** (the SEU/EMI sanity gate and watchdog-reset path,
-which valid stimulus never reaches) is exercised by a host **fault-injection**
-harness. Static analysis (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
+also asserts each variant's full ENGAGED control-pin pattern), with the mute/relay
+drivers' *mid-actuation* control-pin sequencing and pulse width — the transient
+neither the RA0 trace nor gpsim's settled snapshots can see — pinned separately by
+a host **actuation-sequence** test; and the real firmware's **defensive layer**
+(the SEU/EMI sanity gate and watchdog-reset path, which valid stimulus never
+reaches) is exercised by a host **fault-injection** harness. Static analysis (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
 verification, mutation testing, and model + firmware coverage gates round it out.
 `make test` runs all of it for the selected variant; `make test-variants` sweeps
 all three. A long-run `make test-soak` (libgpsim) and an optional KLEE pass
