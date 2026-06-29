@@ -30,21 +30,21 @@ This is intentionally a separate child project of
   behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output variant (all fit the 256-word budget):
   **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
-  **tq2-relay 233 (91.0%)**; 10–11 / 64 bytes RAM.
+  **tq2-relay 233 (91.0%)**; 10-11 / 64 bytes RAM.
 
 **Validation:** because the firmware inlines its logic, it is
 validated in layers (see `test/README.md`): the parent's pure
 debounce core is vendored as a **reference model** and run through
 the full host + formal suite (unit/property/ fuzz, exhaustive
 state-space, symbolic, and CBMC); the **real firmware** is then
-proven behaviorally identical to that model — tick-for-tick over
+proven behaviorally identical to that model: tick-for-tick over
 exhaustive + random stimulus on the host (comparing the status-LED
 bit RA0, the one output that means the same thing for every variant,
 with a gate that the stimulus visits *every* reachable model state).
 The per-variant control pins (RA1/RA2) are pinned by a host
 **actuation-sequence** test that asserts each variant's full *settled*
-`LATA` at every tick — so even cd4053-simple's lone control pin, which
-has no blocking pulse for a snapshot to catch, is verified on the host —
+`LATA` at every tick; so even cd4053-simple's lone control pin, which
+has no blocking pulse for a snapshot to catch, is verified on the host;
 plus the mute/relay drivers' *mid-actuation* sequencing and pulse width
 that neither the RA0 trace nor a settled snapshot can see; the real HEX
 is independently re-checked on a simulated core in gpsim (which asserts
@@ -60,25 +60,26 @@ round it out. `make test` runs all of it for the selected variant;
 available as standalone targets.
 
 **The one structural difference:** the parent compiles its formally-verified pure
-core *directly into* the shipping firmware — the tested code and the flashed code
+core *directly into* the shipping firmware: the tested code and the flashed code
 are the same translation unit. The 10F320's flash can't fit that, so this project
-vendors that exact core as a reference model, runs the full host + formal suite
+vendors that exact core as a reference model, runs the full host and formal suite
 against it, and proves the hand-inlined firmware behaviourally identical to it
 (every output pin checked at every settled tick, the mute/relay mid-actuation
 sequencing pinned separately, and the real HEX re-checked in gpsim). That
 *bridges* the inlining seam rather than *eliminating* it: a single,
 heavily-mitigated trust assumption the parent doesn't carry. On the remaining
-axes the two are at parity — including the hardware-bench gaps, since WDT timing
+axes the two are at parity, including the hardware-bench gaps, since WDT timing
 and brown-out *behaviour* are equally unsimulable in gpsim for the parent's
 PIC10F322 build (gpsim's WDT calibration differs from silicon and it has no analog
 BOR model; the CONFIG check proves those features are *enabled*, not their
-real-time timing — see *Known gaps* in `test/README.md`).
+real-time timing; see *Known gaps* in `test/README.md`).
 
-**When to use which:** the parent remains the authoritative, preferred project —
-it is the canonical home of the verified core and supports more parts (AVR Classic
-+ PIC10F322), so prefer it whenever you can choose the part. Use this firmware when
-the PIC10F320 is a hard requirement: it targets the **same** robustness level by a
-different validation strategy, not a lower one.
+**When to use which:** the parent remains the authoritative,
+preferred project: it is the canonical home of the verified core and
+supports more parts (AVR Classic and PIC10F322), so prefer it
+whenever you can choose the part. Use this firmware when the
+PIC10F320 is a hard requirement (it targets the same robustness
+level by a different (but not lesser) validation strategy).
 
 
 ## Provenance
