@@ -397,7 +397,6 @@ static void init(void) {
     // other pins are left as inputs (TRISA bit = 1). The selected pins are made
     // digital (ANSELA bit = 0) and driven low (LATA bit = 0). RA3 is input-only and
     // always remains an input (its TRISA bit reads 1).
-    //ANSELA &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> digital
     LATA   &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> low
     TRISA   = (uint8_t)((uint8_t)~BYPASS_OUTPUT_DDR_MASK & 0x0FU);  // mask pins = output, rest = input
 
@@ -567,8 +566,9 @@ void main(void) {
                 }
                 break;
 
-            // should be impossible; defense-in-depth/belt-and-suspenders
-            // with the sanity checks above
+            // technicall impossible to reach
+            // but left for: defense-in-depth/belt-and-suspenders with the
+            // sanity checks above
             default:
                 hw_force_wdt_reset();
                 break;
