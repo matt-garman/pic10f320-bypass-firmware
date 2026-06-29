@@ -14,7 +14,12 @@
 #   make test-config    verify the CONFIG word emitted into the built HEX
 #   make test-gpsim     register-level functional test of the HEX in gpsim
 #   make test           everything above (the full validation suite)
+#   make test-variants  run `make test` for ALL three output variants
+#   make release        VERSION=vX.Y.Z: build+validate+stage a prebuilt release
+#   make help           print the full annotated target list
 #   make clean          remove the build directory
+#
+# `make help` prints the complete target list; the above is just the core set.
 #
 # Each analysis/test target SKIPS CLEANLY (exit 0) when its tool is absent, so a
 # partial toolchain still runs whatever it can.
@@ -484,6 +489,32 @@ PIC_SOAK_PROGRESS_INTERVAL_MS ?= 3600000
 PIC_SOAK_SRC = test/pic/test_soak_pic.cc
 PIC_SOAK_BIN = $(BUILD_DIR)/test_soak_pic
 
+# The single compile recipe, shared by the build-only rule and the run target
+# below. FW_PATH is baked as an ABSOLUTE path ($(CURDIR)/$(HEX)) so the resulting
+# binary does not depend on the cwd it is launched from. That matters for the
+# release pipeline: scripts/make-release.sh builds one soak binary per variant
+# (under unique PIC_SOAK_BIN names) and runs them in PARALLEL, each in its own
+# working directory, so the gpsim.log files (gpsim always drops one in the cwd)
+# never collide. Running from the repo root (as test-soak does) is unaffected --
+# an absolute FW_PATH resolves either way.
+PIC_SOAK_COMPILE = $(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
+		-isystem $(PIC_SOAK_GPSIM_INC) -Itest/model \
+		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
+		-DF_CPU_HZ=$(PIC_XTAL) \
+		-DSOAK_DURATION_MS=$(PIC_SOAK_DURATION_MS) \
+		-DSOAK_LIVENESS_INTERVAL_MS=$(PIC_SOAK_LIVENESS_INTERVAL_MS) \
+		-DSOAK_PROGRESS_INTERVAL_MS=$(PIC_SOAK_PROGRESS_INTERVAL_MS) \
+		$(PIC_SOAK_SRC) -o $(PIC_SOAK_BIN) -lgpsim
+
+# Build-only convenience rule: compile the soak driver for the selected
+# PIC_VARIANT to PIC_SOAK_BIN WITHOUT running it. Used by scripts/make-release.sh,
+# which builds one binary per variant under unique PIC_SOAK_BIN names and then
+# runs them concurrently. The HEX it embeds is produced by `make all`, which the
+# release script runs first; this rule will not rebuild on a PIC_SOAK_DURATION_MS
+# change alone, so the release script always `make clean`s before a fresh build.
+$(PIC_SOAK_BIN): $(PIC_SOAK_SRC)
+	$(PIC_SOAK_COMPILE)
+
 .PHONY: test-soak
 test-soak: all
 	@if ! command -v $(PIC_SOAK_CXX) >/dev/null 2>&1; then \
@@ -499,14 +530,7 @@ test-soak: all
 		echo "no $(HEX) (XC8 absent?); skipping soak"; exit 0; \
 	fi; \
 	echo "--- gpsim soak: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) duration=$(PIC_SOAK_DURATION_MS) ms ---"; \
-	$(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
-		-isystem $(PIC_SOAK_GPSIM_INC) -Itest/model \
-		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
-		-DF_CPU_HZ=$(PIC_XTAL) \
-		-DSOAK_DURATION_MS=$(PIC_SOAK_DURATION_MS) \
-		-DSOAK_LIVENESS_INTERVAL_MS=$(PIC_SOAK_LIVENESS_INTERVAL_MS) \
-		-DSOAK_PROGRESS_INTERVAL_MS=$(PIC_SOAK_PROGRESS_INTERVAL_MS) \
-		$(PIC_SOAK_SRC) -o $(PIC_SOAK_BIN) -lgpsim; \
+	$(PIC_SOAK_COMPILE); \
 	./$(PIC_SOAK_BIN)
 
 # --- mutation testing --------------------------------------------------------
@@ -538,3 +562,85 @@ clean:
 	rm -rf $(BUILD_DIR) $(COVERAGE_DIR)
 	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list* *.gcov
 	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
+
+# ============================================================================
+# INTROSPECTION -- expose one Makefile variable's value to scripts
+# ============================================================================
+# `make print-PIC_VARIANTS_ALL` echoes "$(PIC_VARIANTS_ALL)", `make print-PIC_CC`
+# echoes the XC8 path, and so on. scripts/make-release.sh reads the variant list,
+# device names, build dir, and toolchain paths through this target so they come
+# from THIS Makefile (the single source of truth) rather than a hand-maintained
+# copy that could silently drift.
+print-%:
+	@echo '$($*)'
+
+# ============================================================================
+# RELEASE -- reproducible, fully-validated prebuilt firmware images
+# ============================================================================
+# Thin wrapper around scripts/make-release.sh. The script is a deliberate,
+# long-running (~24 h, because of the parallel 24-h soaks) pre-tag gate that:
+#   1. refuses to run unless the working tree is clean and EVERY required tool
+#      is present (the inverse of the dev-time "skip cleanly" behaviour -- a
+#      release must never green-light on a tool that silently did nothing);
+#   2. clean-builds all three output-variant images;
+#   3. runs `make test-variants` and ALL soak combos (one per variant) in parallel;
+#   4. stages release/<VERSION>/ with the .hex images, SHA256SUMS, a provenance
+#      MANIFEST (toolchain versions, per-image flash usage / CONFIG word, flashing
+#      command, soak evidence) and a README;
+#   5. STOPS and prints the exact `git add` / `git commit` / `git tag -s` and
+#      checksum-signing commands for you to run by hand (it never commits or tags).
+# The pushed tag then triggers .github/workflows/release.yml, which rebuilds from
+# the tag on a clean runner, verifies the committed image hashes reproduce
+# bit-for-bit, and publishes the GitHub Release.
+#
+#   make release VERSION=v1.0.0
+#   make release VERSION=v1.0.0 RELEASE_ARGS='--dry-run'   # short soak rehearsal
+.PHONY: release
+release:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "usage: make release VERSION=vX.Y.Z [RELEASE_ARGS='--dry-run']"; \
+		exit 2; \
+	fi
+	./scripts/make-release.sh $(RELEASE_ARGS) $(VERSION)
+
+# ============================================================================
+# HELP
+# ============================================================================
+.PHONY: help
+help:
+	@echo "PIC10F320 bypass firmware -- annotated target list."
+	@echo "Variants: $(PIC_VARIANTS_ALL)  (select with PIC_VARIANT=<name>; default $(PIC_VARIANT))"
+	@echo "MCU: PIC10F320 ($(PIC_FLASH_WORDS)-word flash / 64 B RAM), 16 MHz INTOSC"
+	@echo "Build:"
+	@echo "  all (default)   build the selected variant's .hex + $(PIC_FLASH_WORDS)-word flash-budget gate"
+	@echo "  size            print XC8's full program/data memory summary"
+	@echo "Test (act on PIC_VARIANT=$(PIC_VARIANT) unless noted):"
+	@echo "  test            FULL validation suite for the selected variant"
+	@echo "  test-variants   run \`make test\` for ALL variants ($(PIC_VARIANTS_ALL))"
+	@echo "  test-config     verify the CONFIG word emitted into the built HEX"
+	@echo "  test-gpsim      register-level functional test of the HEX in gpsim"
+	@echo "  test-host       golden-model algorithm tests (host, variant-agnostic)"
+	@echo "  test-model-check exhaustive state-space proof of invariants"
+	@echo "  test-symbolic   exhaustive single-step property proof of step()"
+	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
+	@echo "  test-cbmc       CBMC SAT/SMT proof of the vendored model (if installed)"
+	@echo "  test-formal     model-check + symbolic + cbmc"
+	@echo "  test-equiv      prove the real firmware == model, tick-for-tick"
+	@echo "  test-fault      corrupt state/SFRs, verify the WDT-reset defensive path"
+	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
+	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
+	@echo "  test-mutation   inject firmware/model faults, verify the suite kills them"
+	@echo "Analysis:"
+	@echo "  analyze         cppcheck bug-finding + MISRA-C:2012 (static analysis)"
+	@echo "  analyze-cppcheck / analyze-misra  individual analysis passes"
+	@echo "  coverage        human-readable golden-model coverage report"
+	@echo "  coverage-check  fail if model coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
+	@echo "  coverage-check-fw  fail unless every shipping firmware line is exercised"
+	@echo "Release:"
+	@echo "  release         VERSION=vX.Y.Z: build+validate (incl. soak) + stage release/<ver>/"
+	@echo "                  (RELEASE_ARGS='--dry-run' shortens the soak; see scripts/make-release.sh)"
+	@echo "Clean:"
+	@echo "  clean           remove build + coverage artifacts"
+	@echo "  coverage-clean  remove only coverage artifacts"
+	@echo "Overrides: PIC_VARIANT=, PIC_CC=, PIC_DFP=, COVERAGE_MIN=, BUILD_DIR=,"
+	@echo "           PIC_SOAK_DURATION_MS=, HOST_CC=, CPPCHECK=, GPSIM="

@@ -1,5 +1,7 @@
 # PIC10F320 Bypass Firmware
 
+[![CI](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml/badge.svg)](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml)
+
 Scaled-down, single-file bypass/debounce firmware for the **PIC10F320**,
 supporting all three of the parent project's output stages — **CD4053-simple**,
 **CD4053-with-mute**, and the **TQ2 latching relay** — selected at compile time
@@ -93,11 +95,13 @@ PIC-local and are *not* shared with the parent.
 
 ## Build
 
-Requires Microchip XC8 v3.10 and the PIC10-12Fxxx DFP.
+Requires Microchip XC8 v3.10 and the PIC10-12Fxxx DFP (see
+[TOOLCHAIN.adoc](TOOLCHAIN.adoc) for the full pinned toolchain).
 
 ```sh
 make          # build the .hex (default variant) and check the 256-word budget
 make size     # print XC8's full program/data memory summary
+make help     # the full annotated target list (build / test / release / clean)
 make clean    # remove the build directory
 ```
 
@@ -117,3 +121,17 @@ make PIC_CC=/path/to/xc8-cc PIC_DFP=/path/to/DFP/x.y.z/xc8
 
 The build lands in `build_pic/bypass_mcu_<variant>_pic10f320.hex` (e.g.
 `build_pic/bypass_mcu_cd4053-simple_pic10f320.hex`).
+
+
+## Prebuilt releases
+
+If you just want to flash a chip without installing XC8, prebuilt, fully
+validated images are published under [`release/`](release/) and as
+[GitHub Releases](https://github.com/matt-garman/pic10f320-bypass-firmware/releases).
+Each release pins the image bytes with a `SHA256SUMS` manifest, and the
+tag-triggered CI rebuilds from source on a clean runner and **fails the release
+unless the images reproduce those hashes bit-for-bit** — so a published binary is
+provably what the tested source compiles to. See
+[`release/README.md`](release/README.md) for the trust model and verification
+steps. Maintainers stage a release with `make release VERSION=vX.Y.Z` (see
+`scripts/make-release.sh`).
