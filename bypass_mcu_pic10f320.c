@@ -123,6 +123,22 @@ static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
 static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCCON IRCF)");
 
 
+// Watchdog safety margin -- formalises the hand-calculated budget described in
+// init()'s WDTCON comment as a build-time invariant. The longest stretch between
+// two CLRWDT() "pets" is one tick wait plus the longest BLOCKING output actuation
+// in a toggling tick (the relay/mute pulse). That window must stay safely under
+// the WDT's worst-case (shortest) period, or a healthy main loop could trip the
+// dog. The per-variant pulse term is asserted next to the existing
+// "pulse < RELEASE_THRESH" check in each hw_is_sanity_check_failed().
+//   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=249 @ FOSC/4 = 4MHz).
+//   WDT_MIN_PERIOD_MS : ~256ms nominal (WDTPS=0x08 = 1:8192 on the ~31kHz
+//                       LFINTOSC), de-rated by the datasheet worst-case -37%
+//                       (param 31) to a ~160ms floor.
+#define TICK_PERIOD_MS    (1U)
+#define WDT_MIN_PERIOD_MS (160U)
+
+
+
 
 //////////////////////////////////////////////////////////////////////////////
 // TYPES
@@ -229,6 +245,9 @@ static uint8_t hw_is_sanity_check_failed(void) {
             "CD4053 mute delay must be shorter than the release-lockout window, "
             "or the re-arm point can be missed during the blocking actuation");
 
+    static_assert((TICK_PERIOD_MS + CD4053_MUTE_DELAY_MS) < WDT_MIN_PERIOD_MS,
+            "1ms tick + mute pulse must stay under the worst-case WDT period");
+
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_CTL1) | (1U << CD4053_CTL2)));
 }
 
@@ -284,6 +303,9 @@ static uint8_t hw_is_sanity_check_failed(void) {
     static_assert(TQ2_L2_5V_PULSE_MS < RELEASE_THRESH,
             "relay coil pulse must be shorter than the release-lockout window, "
             "or the re-arm point can be missed during the blocking actuation");
+
+    static_assert((TICK_PERIOD_MS + TQ2_L2_5V_PULSE_MS) < WDT_MIN_PERIOD_MS,
+            "1ms tick + relay coil pulse must stay under the worst-case WDT period");
 
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << RELAY_SET_PIN) | (1U << RELAY_RESET_PIN)));
 }

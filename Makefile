@@ -253,12 +253,17 @@ analyze-misra: $(SRC) $(MISRA_ADDON) $(MISRA_RULES) $(MISRA_SUPPRESS)
 # #pragma config block matches the documented design intent (FOSC=INTOSC,
 # WDTE=ON, MCLRE=OFF, BOREN=ON, ...). A bad pragma is invisible to every other
 # test and would only bite on real silicon.
+# Verify the CONFIG word in the built HEX(es). `all` always builds the selected
+# variant's $(HEX); we additionally pass any sibling variant HEXes already present
+# in the build dir (e.g. from a `test-variants` sweep) so a single invocation
+# cross-checks every built image at once -- realising test_config_pic's documented
+# multi-HEX divergence check. (`sort` dedupes; $(HEX) is guaranteed present here.)
 test-config: all
 	@if ! command -v $(HOST_CC) >/dev/null 2>&1; then \
 		echo "$(HOST_CC) not installed; skipping CONFIG-word check"; exit 0; \
 	fi
 	@$(HOST_CC) -std=c11 -Wall -Wextra -O2 -o $(BUILD_DIR)/test_config_pic test/pic/test_config_pic.c
-	@$(BUILD_DIR)/test_config_pic $(HEX)
+	@$(BUILD_DIR)/test_config_pic $(sort $(HEX) $(wildcard $(BUILD_DIR)/$(FW_BASE)_*_$(PIC_TAG).hex))
 
 # Run the real built HEX inside gpsim and assert observable register state at
 # settled checkpoints: (1) two-press toggle -- power-on BYPASS, press toggles +

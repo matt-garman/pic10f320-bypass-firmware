@@ -54,6 +54,17 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (RA1 stuck low); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
 "bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-gpsim	FW footswitch read polarity inverted (toggles on release, not press)"
+# --- firmware: 1 ms tick CADENCE (the one mutant only gpsim can kill) ---------------
+# Removing the TMR2IF clear makes the flag latch set, so the `while (TMR2IF==0)` poll
+# never re-blocks and the main loop free-runs: the debounce crosses PRESSED_THRESH
+# within microseconds of the press edge instead of the designed ~8 ms. The host
+# harnesses FORCE TMR2IF=1 (one loop iteration == one simulated tick), so test-equiv/
+# test-actuation/test-fault are blind to it by construction; the real TMR2 in gpsim
+# is the only oracle, caught by footswitch_toggle.stc's mid-debounce PRESS1_EARLY
+# checkpoint (LED must still be OFF ~3.5 ms into the press). This is the deliberate
+# exception to "every firmware mutant is killed by a host target" -- tick timing is
+# unobservable on the host.
+"bypass_mcu_pic10f320.c	s@PIR1bits.TMR2IF = 0;@@	test-gpsim	FW TMR2IF tick-flag clear removed: 1 ms poll never re-blocks, loop free-runs, debounce window collapses (host forces TMR2IF=1, so only gpsim's PRESS1_EARLY catches it)"
 # --- firmware: blocking-actuation sequencing (killed by the actuation test) --------
 # These corrupt the mid-actuation output of the BLOCKING variants (relay coil
 # routing / the mute window). They settle to the SAME pin state, so test-equiv

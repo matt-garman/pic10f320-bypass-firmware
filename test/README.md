@@ -155,10 +155,20 @@ register state at settled checkpoints. Pins: RA3 = footswitch (1=released,
 0=pressed), RA0 = LED, RA1/RA2 = the variant's control output(s). The ENGAGED
 `LATA` pattern the wrapper checks is variant-specific — cd4053-simple `0x3`,
 cd4053-mute `0x7`, tq2-relay `0x1` — passed as `PIC_ENGAGED_LATA`; the universal
-RA0 (LED) checks hold for every variant.
+RA0 (LED) checks hold for every variant. The settled BYPASS checkpoints assert
+the **full** `LATA == 0x0` (all control pins low), the symmetric counterpart to
+the ENGAGED full-`LATA` check.
 
 - **`pic/footswitch_toggle.stc`**: power-on BYPASS → momentary press toggles +
   latches ENGAGED → second press toggles back. (toggle-on-press, latching, re-arm.)
+  This scenario also carries the one **non-settled** checkpoint, `PRESS1_EARLY`
+  (~3.5 ms into the first press): the LED must still be **off**, because the
+  debounce demands `PRESSED_THRESH` *separated* 1 ms samples (~8 ms) before it may
+  toggle. This **pins the 1 ms tick cadence** — the single firmware behaviour the
+  host harnesses cannot observe, since they force `TMR2IF=1` so the tick poll never
+  actually waits. A firmware whose tick stopped gating (free-running poll) crosses
+  the threshold within microseconds of the press edge and lights the LED here; gpsim
+  is its sole oracle (see the tick-cadence mutant under *Mutation testing*).
 - **`pic/power_on_pressed.stc`**: a switch held CLOSED at power-on must come up
   BYPASS and not engage until a genuine release + fresh press.
 
@@ -171,12 +181,16 @@ are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
 control-pin mutants — a swapped relay set/reset coil, a defeated mute window, or a
 mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
 mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
-part of `make test` (it rebuilds per mutant). Currently 22 mutants, all killed —
-and, since the cd4053-simple control-pin mutant moved from `test-gpsim` to
-`test-actuation`, the only remaining gpsim-killed mutants (LED-invert,
-footswitch-polarity) also diverge on RA0, so they are killed by `test-equiv` too:
-**every firmware mutant is now killed by a host target**, with gpsim a redundant
-second oracle rather than the sole one for any.
+part of `make test` (it rebuilds per mutant). Currently 23 mutants, all killed.
+
+Almost every firmware mutant is killed by a **host** target (the LED-invert and
+footswitch-polarity mutants also diverge on RA0, so `test-equiv` kills them as well
+as `test-gpsim`), with gpsim a redundant second oracle. The **one deliberate
+exception** is the **tick-cadence** mutant (the `TMR2IF` clear removed, so the 1 ms
+poll never re-blocks and the loop free-runs): tick *timing* is unobservable on the
+host by construction — the host harnesses force `TMR2IF=1` — so gpsim's mid-debounce
+`PRESS1_EARLY` checkpoint is its **sole** killer. That is the correct division of
+labour: cadence is a simulated-core concern, and this is the test that pins it.
 
 ## Why CONFIG-word verification matters
 
@@ -198,7 +212,10 @@ identical in layout, so this decoder is shared with the parent.
   the parent's `test_soak_pic.cc`) exercises WDT *liveness* and periodic
   responsiveness at scale, but still asserts nothing about WDT *timing* (it uses
   the WDT only as a qualitative liveness signal — see the note in
-  `pic/test_soak_pic.cc`).
+  `pic/test_soak_pic.cc`). Note this is distinct from the **1 ms TMR2 tick
+  cadence**, which gpsim *does* model and which the `PRESS1_EARLY` checkpoint now
+  pins (see *gpsim functional scenarios*); only the WDT/BOR *real-time* behaviour
+  remains bench-only.
 - **KLEE symbolic execution** is now wired as the optional, skip-clean
   `make test-symbolic-klee` target (`test_symbolic.c` supports `-DUSE_KLEE`); it
   is not part of `make test`, since the exhaustive host enumeration

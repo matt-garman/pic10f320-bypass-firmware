@@ -15,9 +15,27 @@
 #     defense-in-depth; the model's equivalent default IS formally proven
 #     (test/formal: prove_corrupt_state_faults / verify_corrupt_state_faults).
 #
-# So those specific lines are allow-listed by their SOURCE TEXT (robust to line
-# renumbering). Any OTHER uncovered firmware line fails the gate -- that is the
-# regression alarm: it means a real piece of firmware logic lost its test.
+# So those specific lines are allow-listed by their EXACT SOURCE TEXT (robust to
+# line renumbering): the `hw_force_wdt_reset()` DEFINITION line, its body
+# (`INTCONbits.GIE = 0;`, `for (;;) { }`), the unreachable `default:` label, and
+# the `hw_force_wdt_reset();` call statement. gcov's edge-flow solver credits a
+# no-exit function poorly, so it marks even the function's signature/opening-brace
+# line as uncovered (the harness DOES enter it -- fw_fault_run proves the spin is
+# reached -- but the line still reads `#####`); that line is therefore allow-listed
+# too. This is deliberately a tight, enumerated list -- NOT a `*hw_force_wdt_reset*`
+# wildcard -- so a comment or some future construct that merely mentions the
+# function can never be silently waved through. Any OTHER uncovered firmware line
+# fails the gate -- that is the regression alarm: a real piece of firmware logic
+# lost its test.
+#
+# Note on the `hw_force_wdt_reset();` text: it appears at TWO call sites -- the
+# unreachable `default:` case (legitimately uncovered) AND the live sanity-gate in
+# main() (which MUST be covered). They are textually identical, so this allow-list
+# necessarily permits both; it cannot, by text alone, tell a regression in the
+# live call site apart from the dead one. That is acceptable because the live
+# call's coverage is guaranteed INDEPENDENTLY and loudly by test/fault: its eight
+# `expect_reset(...)` cases all route through that exact statement, so if it ever
+# went uncovered the fault test would fail long before this gate could mask it.
 #
 # Usage: check_fw_coverage.sh <bypass_mcu_pic10f320.c.gcov>
 
@@ -38,7 +56,7 @@ while IFS= read -r rec; do
     lineno=$(printf '%s' "$rec" | awk -F: '{gsub(/[^0-9]/,"",$2); print $2}')
     src=$(printf '%s' "$rec" | cut -d: -f3- | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
     case "$src" in
-        *hw_force_wdt_reset*|"INTCONbits.GIE = 0;"|"default:")
+        "default:"|"hw_force_wdt_reset();"|"INTCONbits.GIE = 0;"|"for (;;) { }"|"__attribute__((noreturn)) static void hw_force_wdt_reset(void) {")
             echo "  allow (fault path)   L${lineno}: ${src}"
             allowed=$((allowed + 1))
             ;;

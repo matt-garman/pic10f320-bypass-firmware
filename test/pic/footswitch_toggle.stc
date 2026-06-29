@@ -36,6 +36,18 @@
 #
 # CHECKPOINTS (the wrapper keys on these exact === labels ===)
 #   INIT_BYPASS  @  90k : LATA bit0 == 0 (LED off), PORTA bit3 == 1 (released)
+#   PRESS1_EARLY @ 114k : LATA bit0 == 0 (LED still OFF), PORTA bit3 == 0 (pressed).
+#                         This is ~14k cyc (~3.5 ms) AFTER the press edge (100k) but
+#                         ~14k cyc BEFORE the earliest legitimate toggle (~128k =
+#                         100k + PRESSED_THRESH*4k). It pins the 1 ms TICK CADENCE:
+#                         the debounce demands 8 *separated* 1 ms samples, so a
+#                         correct firmware is still mid-debounce here. A firmware
+#                         whose tick stopped gating (e.g. the TMR2IF poll never
+#                         re-blocks) free-runs and crosses PRESSED_THRESH within
+#                         microseconds of the edge -> LED already ON here -> FAIL.
+#                         This is the ONE behaviour the host harnesses cannot see
+#                         (they force TMR2IF=1, so the poll never waits); see the
+#                         tick-cadence mutant in test/run_mutation_tests.sh.
 #   PRESS1_LOW   @ 150k : PORTA bit3 == 0 (pressed), LATA bit0 == 1 (LED latched
 #                         ENGAGED -- the effect toggled ON the press, not release)
 #   ENGAGED      @ 300k : LATA bit0 == 1 (LED on, latched), PORTA bit3 == 1
@@ -56,6 +68,12 @@ attach n1 fsw ra3
 break c 90000
 run
 echo ===INIT_BYPASS===
+porta
+lata
+
+break c 114000
+run
+echo ===PRESS1_EARLY===
 porta
 lata
 
