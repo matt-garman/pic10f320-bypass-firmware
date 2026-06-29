@@ -45,9 +45,14 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
 "bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
 "bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
-# --- firmware: GPIO / footswitch wiring (killed by gpsim register checks) ---------
+# --- firmware: GPIO / footswitch wiring -------------------------------------------
+# LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
+# too; they are listed under gpsim as the register-level oracle. The CD4053 control
+# mis-route does NOT move RA0 (it is on RA1), so it is the one wiring fault the
+# RA0-only equivalence test cannot see -- now killed host-only by test-actuation's
+# settled-LATA check (it was gpsim-only before that check existed).
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
-"bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	test-gpsim	FW CD4053 control routed the wrong way (RA1 stuck low); ENGAGED LATA!=0x3"
+"bypass_mcu_pic10f320.c	s@hw_pin_set_high(CD4053_PIN)@hw_pin_set_low(CD4053_PIN)@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (RA1 stuck low); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
 "bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-gpsim	FW footswitch read polarity inverted (toggles on release, not press)"
 # --- firmware: blocking-actuation sequencing (killed by the actuation test) --------
 # These corrupt the mid-actuation output of the BLOCKING variants (relay coil

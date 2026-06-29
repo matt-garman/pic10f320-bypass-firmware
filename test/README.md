@@ -1,7 +1,8 @@
 # Validation suite — PIC10F320 bypass firmware
 
-This project is the deliberately lower-tier, single-file sibling of
-`mcu-bypass-firmware` (see the top-level `README.md` for why). The parent factors
+This project is the single-file PIC10F320 sibling of
+`mcu-bypass-firmware`; it reaches the same robustness level by a different
+validation strategy (see the top-level `README.md`). The parent factors
 its debounce logic into a *pure*, host- and formally-verified core
 (`bypass_pure.c`); this firmware inlines that logic into `main()` to fit the
 PIC10F320's 256-word flash, so there is no separable pure unit *inside the
@@ -43,7 +44,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
-| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s blocking mute/relay drivers assert the correct control pins (and pulse width) *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-state-only) cannot see. | host `gcc` |
+| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
@@ -77,33 +78,46 @@ test fails. (Verified with a deliberate-mismatch negative control.)
 
 ## The actuation-sequence test (`actuation/`)
 
-The equivalence test compares only RA0 (the status LED), and the gpsim test only
-samples *settled* register state. For the two **blocking** output variants —
-`cd4053-mute` and `tq2-relay` — that leaves a blind spot: each actuation asserts
-the mute / energises a relay coil, calls `__delay_ms()`, then releases it, and the
-*transient* mid-pulse output is exactly what those layers cannot see. A swapped
-relay set/reset coil (the relay latches backwards, inverting the audio path
-relative to the LED) or a defeated mute window settles to the **same** pin state,
-so it passes both. That is a real manual-porting hazard here, because the pin map
-and the per-variant output stages are hand-written in this project (PIC-local, not
-shared with the parent) — the same class of inlining bug `test-equiv` catches for
-the debounce core. Mutation testing confirmed the gap before this layer existed.
+The equivalence test compares only RA0 (the status LED). That leaves the
+per-variant control pins (RA1/RA2) — the lines that actually switch the audio —
+unchecked on the host. This layer closes that on two fronts, both by reusing the
+equivalence firmware harness.
 
-`actuation/test_actuation.c` reuses the equivalence firmware harness, but the mock
-`<xc.h>` now routes the firmware's `__delay_ms()` through a hook so `fw_harness.c`
-snapshots `LATA` at the instant of every actuation. The test drives one full round
-trip (power-on bypass → engage → bypass) and asserts, per variant, the exact
-mid-actuation pin pattern **and** the pulse width:
+**Settled control pins (every variant, every tick).** The harness's per-tick hook
+samples `LATA` at the *end* of each main-loop iteration, after `hw_set_*_state()`
+(and any blocking `__delay_ms` pulse) has fully completed — so that sample is
+always the **settled** output. The test asserts the full per-variant pattern there,
+not just RA0: `cd4053-simple` ENGAGED `0x3` / BYPASS `0x0`, `cd4053-mute` `0x7` /
+`0x0`, `tq2-relay` `0x1` / `0x0`. This is the host-side analogue of the gpsim
+full-`LATA` check, and it is the **only** host coverage of `cd4053-simple`'s CD4053
+control pin (RA1): that variant has no blocking pulse, so the mid-pulse path below
+never sees it, and before this check a mis-routed RA1 there survived the entire
+host suite (caught only on the simulated core — confirmed by mutation).
+
+**Mid-actuation transient (blocking variants only).** For `cd4053-mute` and
+`tq2-relay`, each actuation asserts the mute / energises a relay coil, calls
+`__delay_ms()`, then releases it — and the *transient* mid-pulse output is exactly
+what the settled sample and gpsim cannot see. A swapped relay set/reset coil (the
+relay latches backwards, inverting the audio path relative to the LED) or a
+defeated mute window settles to the **same** pin state, so it passes the settled
+checks; only a snapshot *during* the pulse catches it. The mock `<xc.h>` routes
+`__delay_ms()` through a hook so `fw_harness.c` snapshots `LATA` at the instant of
+every actuation. Driving one full round trip (power-on bypass → engage → bypass),
+the test asserts the exact mid-actuation pin pattern **and** the pulse width:
 
 - **cd4053-mute**: engage muted-mid `LATA=0x5` (LED+CTL2 high, CTL1 held low),
   bypass muted-mid `0x4`, 5 ms mute window;
 - **tq2-relay**: engage pulses the SET coil (`0x5` = LED+RA2), bypass pulses the
-  RESET coil (`0x2` = RA1), 12 ms coil pulse;
-- **cd4053-simple**: no blocking actuation, so the test asserts *zero* snapshots.
+  RESET coil (`0x2` = RA1), 12 ms coil pulse (the power-on init bypass pulse is
+  captured and asserted too);
+- **cd4053-simple**: no blocking actuation, so *zero* mid-pulse snapshots (its
+  control pin is covered by the settled check above).
 
-RA0 (the LED) remains the equivalence test's job; this layer is purely the variant
-control pins **during** the blocking pulse (the power-on init bypass pulse is
-captured and asserted too).
+The pin map and per-variant output stages are hand-written here (PIC-local, not
+shared with the parent), so a transcription error in them is the same class of
+inlining bug `test-equiv` catches for the debounce core — and between the two
+layers above, every variant's control pins are now pinned on the host, settled and
+(where they exist) mid-pulse. RA0 (the LED) remains the equivalence test's job.
 
 ## The fault-injection test (`fault/`)
 
@@ -154,10 +168,15 @@ Confirms the suite has teeth: it injects deliberate faults into the firmware and
 the model on a throwaway copy and checks each is detected. Firmware logic mutants
 are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
 (e.g. a neutered pull-up or output-pin check) by `test-fault`; firmware
-blocking-actuation mutants (a swapped relay set/reset coil, a defeated mute
-window) by `test-actuation`; model mutants by `test-host` / `test-model-check`.
-Not part of `make test` (it rebuilds per mutant). Currently 22 mutants, all
-killed.
+control-pin mutants — a swapped relay set/reset coil, a defeated mute window, or a
+mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
+mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
+part of `make test` (it rebuilds per mutant). Currently 22 mutants, all killed —
+and, since the cd4053-simple control-pin mutant moved from `test-gpsim` to
+`test-actuation`, the only remaining gpsim-killed mutants (LED-invert,
+footswitch-polarity) also diverge on RA0, so they are killed by `test-equiv` too:
+**every firmware mutant is now killed by a host target**, with gpsim a redundant
+second oracle rather than the sole one for any.
 
 ## Why CONFIG-word verification matters
 
@@ -168,12 +187,14 @@ on real silicon: WDTE=OFF defeats the fault-recovery watchdog; MCLRE=ON turns RA
 full design intent. The PIC10F320 and PIC10F322 CONFIG words are bit-for-bit
 identical in layout, so this decoder is shared with the parent.
 
-## Known gaps (vs. the parent)
+## Known gaps (hardware-bench only — shared with the parent's PIC build)
 
 - **WDT-timing / brown-out behaviour** is not simulated here (gpsim's WDT
   calibration differs from silicon and it has no analog BOR model). The CONFIG
   check proves WDTE/BOREN are *enabled*; their real-time behaviour is a
-  hardware-bench concern. The `make test-soak` long-run gpsim soak (ported from
+  hardware-bench concern — and one the parent's PIC10F322 build shares, since it is
+  validated in the same gpsim environment, so this is not a gap *relative to the
+  parent*. The `make test-soak` long-run gpsim soak (ported from
   the parent's `test_soak_pic.cc`) exercises WDT *liveness* and periodic
   responsiveness at scale, but still asserts nothing about WDT *timing* (it uses
   the WDT only as a qualitative liveness signal — see the note in

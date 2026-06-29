@@ -39,6 +39,25 @@ extern void     fw_run(const uint8_t *fsw, int n, uint8_t *trace);
 extern int      fw_actuation_count(void);
 extern uint8_t  fw_actuation_lata(int i);
 extern unsigned fw_actuation_ms(int i);
+extern int      fw_tick_count(void);   // settled per-tick LATA samples available
+extern uint8_t  fw_tick_lata(int i);   // full SETTLED LATA at end of tick i
+
+// Per-variant SETTLED LATA pattern (full byte, sampled at end-of-tick). These
+// match the gpsim functional test's PIC_ENGAGED_LATA (cd4053-simple 0x3,
+// cd4053-mute 0x7, tq2-relay 0x1); BYPASS settles to 0x0 for every variant (mute
+// released / coils low, LED off, and the cd4053-simple spare RA2 held low).
+#if defined(OUTPUT_CD4053_SIMPLE)
+#  define EXP_ENGAGED_LATA 0x3u   // LED(RA0) + CD4053(RA1); RA2 spare low
+#  define EXP_BYPASS_LATA  0x0u
+#elif defined(OUTPUT_CD4053_WITH_MUTE)
+#  define EXP_ENGAGED_LATA 0x7u   // LED(RA0) + CTL1(RA1) + CTL2(RA2)
+#  define EXP_BYPASS_LATA  0x0u
+#elif defined(OUTPUT_TQ2_RELAY)
+#  define EXP_ENGAGED_LATA 0x1u   // LED(RA0); both coils settle low
+#  define EXP_BYPASS_LATA  0x0u
+#else
+#  error "no OUTPUT_* variant defined"
+#endif
 
 static int g_checks = 0, g_failures = 0;
 
@@ -68,6 +87,28 @@ int main(void) {
     fw_run(fsw, n, trace);
 
     int const count = fw_actuation_count();
+
+    // Settled control-pin check (host-side, every variant). The CLRWDT hook samples
+    // LATA at the END of each main-loop iteration -- after hw_set_*_state() and any
+    // blocking __delay_ms pulse have completed -- so LATA is fully SETTLED there.
+    // Assert the FULL per-variant pin pattern, not just RA0: the control pins
+    // (RA1/RA2) must agree with the LED at every tick. This is the host-side
+    // analogue of the gpsim full-LATA check and, crucially, it covers the
+    // cd4053-simple CD4053 control pin (RA1) -- which has no blocking actuation for
+    // the snapshot path below to catch, and so was otherwise verified only on the
+    // simulated core (a mis-routed RA1 there survived the whole host suite; see the
+    // mutation table). Mid-pulse transients remain the actuation-snapshot checks.
+    {
+        int const ticks = fw_tick_count();
+        CHECK(ticks == n, "expected %d settled per-tick LATA samples, got %d", n, ticks);
+        for (int i = 0; i < ticks; ++i) {
+            uint8_t const want = trace[i] ? (uint8_t)EXP_ENGAGED_LATA
+                                          : (uint8_t)EXP_BYPASS_LATA;
+            CHECK(fw_tick_lata(i) == want,
+                  "tick %d: settled LATA 0x%X != expected 0x%X (LED RA0=%u)",
+                  i, (unsigned)fw_tick_lata(i), (unsigned)want, (unsigned)trace[i]);
+        }
+    }
 
 #if defined(OUTPUT_CD4053_SIMPLE)
     printf("actuation-sequence (cd4053-simple): expect no blocking actuation\n");

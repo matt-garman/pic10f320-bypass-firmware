@@ -47,7 +47,7 @@ static jmp_buf       g_done;
 static const uint8_t *g_fsw;   // stimulus: 1 = pressed (RA3 low), 0 = released
 static int            g_n;     // stimulus length (number of ticks)
 static int            g_tick;  // current tick index
-static uint8_t       *g_trace; // out: LATA & 0x03 captured per tick
+static uint8_t       *g_trace; // out: status-LED bit (LATA & 0x01) per tick
 static int            g_clrwdt_calls;
 
 // --- actuation-sequence capture ----------------------------------------------
@@ -75,6 +75,26 @@ int      fw_actuation_count(void) { return g_act_count; }
 uint8_t  fw_actuation_lata(int i) { return (i >= 0 && i < g_act_count) ? g_act_lata[i] : 0xFFu; }
 unsigned fw_actuation_ms(int i)   { return (i >= 0 && i < g_act_count) ? g_act_ms[i]   : 0u; }
 
+// --- settled per-tick full-LATA capture ---------------------------------------
+// g_trace (above) records only RA0 (the LED), because that is the one bit the
+// variant-agnostic equivalence test compares against the model. But the CLRWDT
+// hook fires at the END of each main-loop iteration -- AFTER hw_set_*_state() has
+// run to completion (including any blocking __delay_ms pulse) -- so LATA is fully
+// SETTLED there for every tick, never mid-pulse. Recording the whole byte lets
+// test/actuation assert each variant's per-variant control pins (RA1/RA2) at every
+// settled tick, not just RA0. That closes the one hole the RA0-only equivalence
+// test leaves on the host: a mis-routed / stuck control pin on the NON-blocking
+// cd4053-simple variant (which has no __delay_ms for the actuation-snapshot path
+// to catch) -- previously verified only on the simulated core. The equivalence run
+// fills this too but ignores it; it is bounded so a long equiv stimulus cannot
+// overflow it (the excess ticks are simply not recorded).
+#define FW_TICK_TRACE_MAX 256
+static uint8_t g_tick_lata[FW_TICK_TRACE_MAX];
+static int     g_tick_lata_n; // number of settled per-tick LATA samples recorded
+
+int     fw_tick_count(void) { return g_tick_lata_n; }
+uint8_t fw_tick_lata(int i) { return (i >= 0 && i < g_tick_lata_n) ? g_tick_lata[i] : 0xFFu; }
+
 // Present the footswitch level for tick i on RA3 (pressed => RA3 low).
 static void present_footswitch(int i) {
     if (g_fsw[i]) { PORTA &= (uint8_t)~0x08u; } // pressed -> low
@@ -90,6 +110,10 @@ void bypass_equiv_on_clrwdt(void) {
     // A main-loop iteration just completed: capture the status-LED (RA0) output
     // for this tick -- the variant-independent witness of effect state.
     g_trace[g_tick] = (uint8_t)(LATA & 0x01u);
+    if (g_tick < FW_TICK_TRACE_MAX) {   // full SETTLED LATA for this tick
+        g_tick_lata[g_tick] = LATA;
+        g_tick_lata_n = g_tick + 1;
+    }
     g_tick++;
     if (g_tick >= g_n) {
         longjmp(g_done, 1); // stimulus exhausted -> unwind out of fw_main()
@@ -116,7 +140,8 @@ static void on_alarm(int sig) {
 // fsw[0] (power-on level).
 void fw_run(const uint8_t *fsw, int n, uint8_t *trace) {
     g_fsw = fsw; g_n = n; g_tick = 0; g_trace = trace; g_clrwdt_calls = 0;
-    g_act_count = 0; // reset the per-run actuation-snapshot log
+    g_act_count = 0;    // reset the per-run actuation-snapshot log
+    g_tick_lata_n = 0;  // reset the per-run settled per-tick LATA log
 
     // Reset SFR storage so each run starts from a clean power-on.
     LATA = PORTA = TRISA = ANSELA = WPUA = PR2 = T2CON = 0u;

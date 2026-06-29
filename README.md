@@ -11,11 +11,10 @@ footswitch, debounces it, toggles effect bypass/engage, and drives a
 status LED.
 
 
-## Project tier
+## Relationship to the parent project
 
 This is intentionally a separate child project of
-[mcu-bypass-firmware](https://github.com/matt-garman/mcu-bypass-firmware)
-project.
+[mcu-bypass-firmware](https://github.com/matt-garman/mcu-bypass-firmware).
 
 - The parent is the textbook-grade, fully-validated reference firmware (AVR
   Classic and PIC10F322). Its design is built around a *pure*,
@@ -23,11 +22,12 @@ project.
   is written as side-effect-free functions returning result structs, which is
   what makes it unit- and model-checkable on a host.
 - The PIC10F320 is a smaller device with only **256 words of program flash** (half the
-  PIC10F322's 512). Fitting the parent's pure/result-struct architecture into
-  that budget required too many compromises to its reliability goals, so this
-  project deliberately trades that architecture away: the debounce logic is
-  **inlined into `main()`**, mutating a file-global context and driving the
-  hardware directly.
+  PIC10F322's 512). The parent's pure/result-struct architecture does not fit that
+  budget, so this project takes a different route: the debounce logic is **inlined
+  into `main()`**, mutating a file-global context and driving the hardware directly.
+  The assurance the parent gets *for free* by compiling its verified core straight
+  into the firmware is instead **recovered here by proving the inlined firmware
+  behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output variant (all fit the 256-word budget):
   **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
   **tq2-relay 233 (91.0%)**; 10–11 / 64 bytes RAM.
@@ -40,12 +40,15 @@ state-space, symbolic, and CBMC); the **real firmware** is then
 proven behaviorally identical to that model — tick-for-tick over
 exhaustive + random stimulus on the host (comparing the status-LED
 bit RA0, the one output that means the same thing for every variant,
-with a gate that the stimulus visits *every* reachable model state),
-and on a simulated core in gpsim (which also asserts each variant's
-full ENGAGED control-pin pattern), with the mute/relay drivers'
-*mid-actuation* control-pin sequencing and pulse width — the
-transient neither the RA0 trace nor gpsim's settled snapshots can
-see — pinned separately by a host **actuation-sequence** test; and
+with a gate that the stimulus visits *every* reachable model state).
+The per-variant control pins (RA1/RA2) are pinned by a host
+**actuation-sequence** test that asserts each variant's full *settled*
+`LATA` at every tick — so even cd4053-simple's lone control pin, which
+has no blocking pulse for a snapshot to catch, is verified on the host —
+plus the mute/relay drivers' *mid-actuation* sequencing and pulse width
+that neither the RA0 trace nor a settled snapshot can see; the real HEX
+is independently re-checked on a simulated core in gpsim (which asserts
+each variant's full ENGAGED control-pin pattern); and
 the real firmware's **defensive layer** (the SEU/EMI sanity gate and
 watchdog-reset path, which valid stimulus never reaches) is
 exercised by a host **fault-injection** harness. Static analysis
@@ -56,14 +59,26 @@ round it out. `make test` runs all of it for the selected variant;
 (libgpsim) and an optional KLEE pass (`make test-symbolic-klee`) are
 available as standalone targets.
 
-**Still lower-tier:** the gaps that remain are real — WDT-timing / brown-out
-*behaviour* is not simulated (gpsim's WDT calibration differs from silicon and it
-has no analog BOR model); the CONFIG check proves those features are enabled, not
-their real-time timing.
+**The one structural difference:** the parent compiles its formally-verified pure
+core *directly into* the shipping firmware — the tested code and the flashed code
+are the same translation unit. The 10F320's flash can't fit that, so this project
+vendors that exact core as a reference model, runs the full host + formal suite
+against it, and proves the hand-inlined firmware behaviourally identical to it
+(every output pin checked at every settled tick, the mute/relay mid-actuation
+sequencing pinned separately, and the real HEX re-checked in gpsim). That
+*bridges* the inlining seam rather than *eliminating* it: a single,
+heavily-mitigated trust assumption the parent doesn't carry. On the remaining
+axes the two are at parity — including the hardware-bench gaps, since WDT timing
+and brown-out *behaviour* are equally unsimulable in gpsim for the parent's
+PIC10F322 build (gpsim's WDT calibration differs from silicon and it has no analog
+BOR model; the CONFIG check proves those features are *enabled*, not their
+real-time timing — see *Known gaps* in `test/README.md`).
 
-**When to use which:** use this firmware when the PIC10F320 is a hard
-requirement. When you can choose the part, prefer the parent project's
-PIC10F322 or AVR Classic build for maximum assurance.
+**When to use which:** the parent remains the authoritative, preferred project —
+it is the canonical home of the verified core and supports more parts (AVR Classic
++ PIC10F322), so prefer it whenever you can choose the part. Use this firmware when
+the PIC10F320 is a hard requirement: it targets the **same** robustness level by a
+different validation strategy, not a lower one.
 
 
 ## Provenance
