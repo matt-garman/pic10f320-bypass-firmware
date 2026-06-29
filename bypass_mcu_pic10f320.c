@@ -255,6 +255,9 @@ static void hw_set_engaged_state(void) {
 
 static uint8_t hw_is_sanity_check_failed(void) {
 
+    static_assert(CD4053_CTL1 == _PORTA_RA1_POSN, "CD4053_CTL1 must be RA1");
+    static_assert(CD4053_CTL2 == _PORTA_RA2_POSN, "CD4053_CTL2 must be RA2");
+
     static_assert(CD4053_MUTE_DELAY_MS < RELEASE_THRESH,
             "CD4053 mute delay must be shorter than the release-lockout window, "
             "or the re-arm point can be missed during the blocking actuation");
@@ -320,6 +323,9 @@ static uint8_t hw_is_sanity_check_failed(void) {
 
     static_assert((TICK_PERIOD_MS + TQ2_L2_5V_PULSE_MS) < WDT_MIN_PERIOD_MS,
             "1ms tick + relay coil pulse must stay under the worst-case WDT period");
+
+    static_assert(RELAY_RESET_PIN == _PORTA_RA1_POSN, "RELAY_RESET_PIN must be RA1");
+    static_assert(RELAY_SET_PIN   == _PORTA_RA2_POSN, "RELAY_SET_PIN must be RA2");
 
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << RELAY_SET_PIN) | (1U << RELAY_RESET_PIN)));
 }

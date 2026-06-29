@@ -184,7 +184,7 @@ are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
 control-pin mutants — a swapped relay set/reset coil, a defeated mute window, or a
 mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
 mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
-part of `make test` (it rebuilds per mutant). Currently 23 mutants, all killed.
+part of `make test` (it rebuilds per mutant). Currently 25 mutants, all killed.
 
 Almost every firmware mutant is killed by a **host** target (the LED-invert and
 footswitch-polarity mutants also diverge on RA0, so `test-equiv` kills them as well

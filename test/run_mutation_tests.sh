@@ -82,6 +82,7 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_SET_PIN);   // pulse set coil@hw_pin_set_high(RELAY_RESET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay ENGAGE pulses the RESET coil instead of SET (relay latches backwards; settles to same LATA, so equiv/gpsim miss it)"
 "bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil@hw_pin_set_high(RELAY_SET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
+"bypass_mcu_pic10f320.c	s@#  define CD4053_CTL1     (1U) // RA1@#  define CD4053_CTL1     (2U) // MUTANT@;s@#  define CD4053_CTL2     (2U) // RA2@#  define CD4053_CTL2     (1U) // MUTANT@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute CTL1/CTL2 pins swapped (mute applied to wrong control; mid-mute LATA pattern wrong, settles to same LATA so equiv/gpsim miss it)"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------
 "test/model/bypass_pure.c	s@{ ++counter; }@{ --counter; }@	test-host	MODEL integrator increment becomes decrement"
 "test/model/bypass_pure.c	s@ctx.debounce_counter >= PRESSED_THRESH@ctx.debounce_counter > PRESSED_THRESH@	test-host	MODEL press threshold off-by-one (>= becomes >)"
