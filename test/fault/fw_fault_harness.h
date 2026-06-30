@@ -28,7 +28,9 @@ typedef enum {
     FWI_PULLUP_LATCH_CLEARED, // WPUA footswitch pull-up latch flipped off
     FWI_PULLUP_GLOBAL_OFF,    // OPTION_REG nWPUEN set (global pull-up disable)
     FWI_LED_PIN_TO_INPUT,     // TRISA RA0 (LED) flipped from output to input
-    FWI_CD4053_PIN_TO_INPUT   // TRISA RA1 (CD4053) flipped from output to input
+    FWI_CD4053_PIN_TO_INPUT,  // TRISA RA1 (CD4053) flipped from output to input
+    FWI_RA2_PIN_TO_INPUT      // TRISA RA2 flipped from output to input (load-bearing
+                              // for cd4053-mute / tq2-relay; harmless for cd4053-simple)
 } fw_inject_t;
 
 // Run the real firmware from a clean power-on, let it complete exactly ONE clean

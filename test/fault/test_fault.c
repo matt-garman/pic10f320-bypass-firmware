@@ -72,6 +72,17 @@ static void test_predicates(void) {
     sfr_clean(); TRISA |= (uint8_t)(1u << 1);
     CHECK(fwp_sanity_failed() != 0, "lost CD4053 output must flag sanity failure");
 
+    // RA2 flipped to input -- SEU on TRISA bit 2.  RA2 is load-bearing for
+    // mute/relay variants (CTL2/SET coil); for cd4053-simple/tmux4053-simple it
+    // is configured as an output but not logically driven, so the firmware does
+    // not expect it as an output and flipping it to input must NOT be a reset.
+    // The variant sweep covers both cases.
+    sfr_clean(); TRISA |= (uint8_t)(1u << 2);
+    CHECK(fwp_output_pins_intact(0x04u) == 0, "RA2 as input must read NOT intact");
+#if !defined(OUTPUT_CD4053_SIMPLE)
+    CHECK(fwp_sanity_failed() != 0, "lost RA2 output must flag sanity failure");
+#endif
+
     // pull-up latch cleared -- SEU on WPUA
     sfr_clean(); WPUA &= (uint8_t)~(1u << 3);
     CHECK(fwp_pullup_intact() == 0, "cleared WPUA latch must read pull-up NOT intact");
@@ -113,7 +124,16 @@ static void test_fault_injection(void) {
     expect_reset(FWI_PULLUP_LATCH_CLEARED, "WPUA pull-up latch cleared");
     expect_reset(FWI_PULLUP_GLOBAL_OFF,    "OPTION_REG nWPUEN=1 (global pull-up off)");
     expect_reset(FWI_LED_PIN_TO_INPUT,     "TRISA RA0 (LED) flipped to input");
-    expect_reset(FWI_CD4053_PIN_TO_INPUT,  "TRISA RA1 (CD4053) flipped to input");
+    expect_reset(FWI_CD4053_PIN_TO_INPUT,  "TRISA RA1 (CD4053/RESET) flipped to input");
+    // RA2 is only load-bearing for variants that use it (cd4053-mute / tmux4053-mute
+    // / tq2-relay); for cd4053-simple/tmux4053-simple it is a spare output and the
+    // sanity check does not include it, so flipping it to input must NOT force a
+    // reset. The variant sweep covers both cases.
+#if defined(OUTPUT_CD4053_SIMPLE)
+    expect_no_reset(FWI_RA2_PIN_TO_INPUT, "TRISA RA2 flipped to input (spare on simple)");
+#else
+    expect_reset(FWI_RA2_PIN_TO_INPUT, "TRISA RA2 (CTL2/SET) flipped to input");
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////////

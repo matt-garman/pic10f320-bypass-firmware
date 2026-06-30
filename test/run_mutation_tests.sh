@@ -41,10 +41,10 @@ MUTATIONS=(
 # These mutants WEAKEN a runtime sanity check so a real fault would go undetected.
 # They are invisible to test-equiv/test-gpsim (valid stimulus never trips the
 # check); only test-fault, which injects corrupted state, kills them.
-"bypass_mcu_pic10f320.c	s@return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);@return 0U;@	test-fault	FW output-pin SEU check neutered (lost LED/CD4053 output never detected)"
-"bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
-"bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
-"bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
+"bypass_mcu_pic10f320.c	s@return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);@return 0U;@	test-fault-variants	FW output-pin SEU check neutered (lost LED/CD4053 output never detected)"
+"bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault-variants	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
+"bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault-variants	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
+"bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault-variants	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
 # --- firmware: GPIO / footswitch wiring -------------------------------------------
 # LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
 # too; they are listed under gpsim as the register-level oracle. The CD4053 control
@@ -106,7 +106,7 @@ copy_tree() {
 echo "=== mutation testing: baseline sanity check ==="
 BASE="$(mktemp -d)"; copy_tree "$BASE"
 base_fail=0
-for t in test-host test-model-check test-equiv test-actuation test-fault; do
+for t in test-host test-model-check test-equiv test-actuation test-fault-variants; do
     if make -C "$BASE" "$t" >/dev/null 2>&1; then
         echo "baseline $t: PASS"
     else

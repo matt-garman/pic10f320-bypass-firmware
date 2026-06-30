@@ -137,11 +137,19 @@ between ticks. `test_fault.c` then asserts:
 
 - **predicate probes** — the static sanity predicates return the right verdict
   for both good and SEU-corrupted SFRs (e.g. a `TRISA` bit flipped from output to
-  input, a cleared `WPUA` latch, `nWPUEN` set);
+  input for RA0, RA1, or RA2, a cleared `WPUA` latch, `nWPUEN` set);
 - **fault injection** — after one clean iteration, an out-of-range
   `program_state`/`effect_state` or a critical-SFR flip makes the next iteration
   force a watchdog reset, while valid states (including a valid ENGAGED state) do
   *not*.
+
+The fault harness is run **once per output variant** (`test-fault-variants`)
+because the pin map differs: RA1 is always load-bearing (LED/CD4053/RESET), and
+RA2 is load-bearing only for `cd4053-mute`/`tmux4053-mute`/`tq2-relay`.  On
+`cd4053-simple`/`tmux4053-simple` an SEU that flips RA2 back to input is
+therefore a negative-control case (no reset), while on the mute/relay variants it
+must force a reset. This also exercises the variant-specific sanity-check pin
+masks end-to-end.
 
 Observing the reset is the trick: `hw_force_wdt_reset()` clears `GIE` and spins
 forever (on silicon the watchdog then resets the MCU). The harness arms a short

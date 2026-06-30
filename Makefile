@@ -445,9 +445,22 @@ test-fault:
 	@mkdir -p $(BUILD_DIR)
 	@$(HOST_CC) -std=c11 -O2 $(FAULT_FW_DEFS) $(FAULT_INC) \
 		-c $(FAULT_HARNESS) -o $(BUILD_DIR)/fw_fault_harness.o
-	@$(HOST_CC) $(HOST_CFLAGS) $(FAULT_INC) -c $(FAULT_DRIVER) -o $(BUILD_DIR)/test_fault_drv.o
+	@$(HOST_CC) $(HOST_CFLAGS) $(PIC_OUTPUT_DEF) $(FAULT_INC) -c $(FAULT_DRIVER) -o $(BUILD_DIR)/test_fault_drv.o
 	@$(HOST_CC) $(BUILD_DIR)/fw_fault_harness.o $(BUILD_DIR)/test_fault_drv.o -o $(BUILD_DIR)/test_fault
 	@$(BUILD_DIR)/test_fault
+
+# Run the fault-injection test for EVERY output variant. Each variant's output
+# pin map is different (RA2 is a spare input for cd4053-simple/tmux4053-simple,
+# but a load-bearing control output for mute/relay), so the defensive SFR check
+# only behaves identically at the RA0/RA1 level. Sweeping all variants pins the
+# RA2-specific sanity path.
+test-fault-variants:
+	@for v in $(PIC_VARIANTS_ALL); do \
+		echo "===================== FAULT VARIANT $$v ====================="; \
+		$(MAKE) --no-print-directory PIC_VARIANT=$$v test-fault || exit 1; \
+		rm -f $(BUILD_DIR)/test_fault $(BUILD_DIR)/test_fault_drv.o $(BUILD_DIR)/fw_fault_harness.o; \
+	done
+	@echo "=== all fault-injection variants validated ==="
 
 # --- coverage (of the vendored model) ----------------------------------------
 # Coverage is accumulated ACROSS the host unit tests AND the two exhaustive
@@ -613,6 +626,7 @@ test-variants:
 		echo "===================== VARIANT $$v ====================="; \
 		$(MAKE) --no-print-directory PIC_VARIANT=$$v test || exit 1; \
 	done
+	@$(MAKE) --no-print-directory test-fault-variants
 	@echo "=== all output variants validated ==="
 
 clean:

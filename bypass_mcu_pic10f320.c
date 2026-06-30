@@ -90,6 +90,24 @@
 #define BYPASS_OUTPUT_DDR_MASK (0x07U)  // RA0|RA1|RA2
 
 
+// HFINTOSC frequency select value for 16 MHz (OSCCONbits.IRCF = 0b111).
+// Must agree with _XTAL_FREQ (which is asserted below).
+// Referenced both in init() and per-tick runtime sanity in main()
+#define HFINTOSC_16MHZ_IRCF (0x07U)
+
+// WDT postscaler value for the chosen ~256 ms watchdog period.
+// Per DS40001585: WDTPS = 0b01000 => 1:8192 on the ~31 kHz LFINTOSC.
+// De-rated worst-case is asserted via WDT_MIN_PERIOD_MS below.
+// Referenced both in init() and per-tick runtime sanity in main()
+#define WDT_WDTPS_256MS (0x08U)
+
+
+#define TMR2_PRESCALE_VALUE (0x07U) // T2CON: T2CKPS=0b11, TMR2ON=1
+#define TMR2_PR2_PERIOD     (249U)  // PR2 = 249 -> 250 counts @ 250 kHz
+
+
+
+
 
 // Upper bound for values stored in the uint8_t debounce counter, as an
 // UNSIGNED constant.  We deliberately do NOT use <stdint.h>'s UINT8_MAX: by C
@@ -475,7 +493,7 @@ static void init(void) {
     //
     // HFINTOSC = 16 MHz (IRCF = 0b111).  Must match _XTAL_FREQ (asserted
     // below), which the relay/mute drivers' __delay_ms() relies on.
-    OSCCONbits.IRCF = 0x07U;
+    OSCCONbits.IRCF = HFINTOSC_16MHZ_IRCF;
 
     // entire port digital -- the I/O pins power up as analog inputs.
     ANSELA = 0x00U;
@@ -492,12 +510,14 @@ static void init(void) {
     // worst-case it is still ~160ms -- comfortably > the ~14ms worst-case
     // pet-to-pet window (1ms tick + 12ms relay coil pulse), unlike the prior
     // 32ms (~1.4x margin).
-    WDTCONbits.WDTPS = 0x08U;
+    WDTCONbits.WDTPS = WDT_WDTPS_256MS;
 
 
 
     // default to bypass (may block on the relay/mute pulse, which is shorter
     // than one WDT period)
+    // note, the 4053-with-mute and relay variants use __delay_ms(): so it's
+    // important that this is invoked AFTER the OSCCONbits.IRCF setting above
     hw_set_bypass_state();
 
     // initialize global switch state from the current footswitch level
@@ -526,9 +546,9 @@ static void init(void) {
     // asserts on every PR2 match (once per 1ms), not once per N matches.
     // MUST run AFTER any blocking output actuation so a TMR2IF that set
     // during init is not mistaken for the first real tick.
-    PR2   = 249U;        // 1ms period
-    T2CON = 0x07U;       // T2CKPS = 0b11 (1:16 prescale), TMR2ON = 1
-    PIR1bits.TMR2IF = 0; // start clean
+    PR2   = TMR2_PR2_PERIOD;     // 1ms period
+    T2CON = TMR2_PRESCALE_VALUE; // T2CKPS = 0b11 (1:16 prescale), TMR2ON = 1
+    PIR1bits.TMR2IF = 0;         // start clean
 }
 
 
@@ -557,7 +577,11 @@ void main(void) {
                 (ctx_.effect_state > ENGAGED) ||
                 // assert footswitch pull-up still enabled
                 (0U == hw_footswitch_pullup_intact()) ||
+                (HFINTOSC_16MHZ_IRCF != OSCCONbits.IRCF) ||
+                (WDT_WDTPS_256MS != WDTCONbits.WDTPS) ||
                 (ctx_.debounce_counter > RELEASE_THRESH) ||
+                (TMR2_PR2_PERIOD != PR2) ||
+                (TMR2_PRESCALE_VALUE != T2CON) ||
                 // config-specific runtime sanity checks
                 hw_is_sanity_check_failed()
            ) {
@@ -595,11 +619,11 @@ void main(void) {
                     if (ctx_.debounce_counter >= PRESSED_THRESH) {
                         ctx_.debounce_counter = RELEASE_THRESH;
                         ctx_.program_state = RELEASE_DEBOUNCE_WAIT;
-                        if (BYPASS == ctx_.effect_state)
-                        {
+                        if (BYPASS == ctx_.effect_state) {
                             ctx_.effect_state = ENGAGED;
                             hw_set_engaged_state();
-                        } else { // ENGAGED == ctx_.effect_state
+                        }
+                        else { // ENGAGED == ctx_.effect_state
                             ctx_.effect_state = BYPASS;
                             hw_set_bypass_state();
                         }

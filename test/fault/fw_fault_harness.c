@@ -144,6 +144,7 @@ static void apply_injection(int inj) {
         case FWI_PULLUP_GLOBAL_OFF:    OPTION_REGbits.nWPUEN = 1u;                break;
         case FWI_LED_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 0);               break;
         case FWI_CD4053_PIN_TO_INPUT:  TRISA |= (uint8_t)(1u << 1);               break;
+        case FWI_RA2_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 2);               break;
         case FWI_NONE:
         default:
             break;
