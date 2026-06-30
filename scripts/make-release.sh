@@ -35,7 +35,9 @@
 #   3. Run ALL soak combos (one libgpsim soak per variant) IN PARALLEL for the
 #      full duration, collecting a pass/fail verdict and evidence from each.
 #   4. Stage release/<VERSION>/ : the .hex images, SHA256SUMS, a provenance
-#      MANIFEST, a README, the soak/validation evidence, and a commit message.
+#      MANIFEST, a README, and the soak/validation evidence. (The suggested git
+#      commit message is written to ./commit_msg.txt at the repo root -- kept OUT
+#      of the staged dir so `git add release/<VERSION>` can never publish it.)
 #   5. STOP. Print the exact git + signing commands for the human to run. This
 #      script NEVER commits, tags, signs, or pushes -- per project policy all
 #      modifying git operations are done by hand.
@@ -47,13 +49,17 @@
 #     --dry-run                rehearse the whole pipeline with a SHORT soak
 #                              (does not produce a real release; output is
 #                              clearly marked and no git commands are emitted)
-#     --soak-duration-ms N     per-combo soak duration (default 86400000 = 24 h)
+#     --soak-duration-ms N     per-combo soak duration, in SIMULATED MCU ms
+#                              (default 86400000 = 24 h of simulated operation)
 #     --jobs N                 max concurrent soak combos (default: all of them)
 #     --output-dir DIR         where to stage (default release/<version>)
 #     -h | --help              this help
 #
-# This script is intentionally long-running (~24 h, dominated by the parallel
-# soaks). Run it on a machine that can stay up, with all toolchains installed
+# This script is long-running, dominated by the parallel soaks. Each soak
+# exercises 24 h of *simulated* MCU time -- NOT 24 h of wall-clock. gpsim
+# simulates the 16 MHz core faster than real time, so the wall-clock cost is
+# host-dependent and typically well under 24 h; it is still long enough that you
+# should run this on a machine that can stay up, with all toolchains installed
 # (XC8 + PIC10-12Fxxx DFP + gpsim/gpsim-dev + cppcheck + cbmc + a host C/C++
 # compiler). See TOOLCHAIN.adoc.
 
@@ -77,7 +83,7 @@ die()     { printf '%sFATAL%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 VERSION=""
 DRY_RUN=0
 ALLOW_DIRTY=0
-SOAK_DURATION_MS=86400000          # 24 h
+SOAK_DURATION_MS=86400000          # 24 h of SIMULATED MCU time (not wall-clock)
 JOBS=0                             # 0 => "all combos"
 OUTPUT_DIR=""
 
@@ -143,6 +149,16 @@ trap 'rc=$?; if [ $rc -ne 0 ]; then KEEP_WORK=1; warn "left working dir for insp
 if [ -n "$OUTPUT_DIR" ]; then :;
 elif [ "$DRY_RUN" -eq 1 ]; then OUTPUT_DIR="$WORK/release/$VERSION"; KEEP_WORK=1
 else OUTPUT_DIR="release/$VERSION"
+fi
+
+# The suggested commit message is scaffolding for the human's `git commit -F`,
+# NOT a release artifact -- it must live OUTSIDE OUTPUT_DIR so the recipe's
+# `git add <release dir>` cannot sweep it into the published release. A real
+# release drops it at the repo root (git-ignored; the handoff recipe points
+# `git commit -F` at it); a dry run keeps it in the scratch WORK so the repo
+# tree is never touched.
+if [ "$DRY_RUN" -eq 1 ]; then COMMIT_MSG="$WORK/commit_msg.txt"
+else COMMIT_MSG="$REPO_ROOT/commit_msg.txt"
 fi
 
 # ============================================================================
@@ -284,7 +300,7 @@ NCOMBOS=${#SOAK_NAMES[@]}
 [ "$JOBS" -gt 0 ] 2>/dev/null || JOBS=$NCOMBOS
 hours=$(awk -v ms="$SOAK_DURATION_MS" 'BEGIN{printf "%.1f", ms/3600000}')
 ncpu=$(nproc 2>/dev/null || echo "?")
-log "launching $NCOMBOS soak combos, up to $JOBS at once (~${hours} h each; this box has $ncpu logical CPUs)."
+log "launching $NCOMBOS soak combos, up to $JOBS at once (${hours} h SIMULATED each; wall-clock is host-dependent; this box has $ncpu logical CPUs)."
 [ "$JOBS" -lt "$NCOMBOS" ] && warn "more combos ($NCOMBOS) than the --jobs cap ($JOBS): total time scales up."
 
 START_EPOCH=$(date +%s)
@@ -382,7 +398,7 @@ REL_BANNER=""
 	printf -- '- **Source commit:** `%s`\n' "$GIT_SHA"
 	[ "$GIT_DIRTY" -eq 1 ] && printf -- '- **WARNING:** built from a DIRTY tree (uncommitted changes not captured by the SHA).\n'
 	printf -- '- **Built:** %s by `%s` on `%s`\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${USER:-?}" "$(uname -srm)"
-	printf -- '- **Validation:** `make test-variants` + `make test-mutation` + %s-h parallel soak of every variant (see evidence/).\n\n' "$hours"
+	printf -- '- **Validation:** `make test-variants` + `make test-mutation` + a %s-h *simulated-time* parallel libgpsim soak of every variant (see evidence/).\n\n' "$hours"
 
 	printf '## Toolchain\n\n'
 	printf -- '| tool | version |\n|---|---|\n'
@@ -438,16 +454,17 @@ ok "wrote MANIFEST.md"
 	printf '```\ngpg --verify SHA256SUMS.asc SHA256SUMS\n```\n'
 } > "$OUTPUT_DIR/README.md"
 
-# Commit message for the human to use verbatim (git commit -F ...).
+# Commit message for the human to use verbatim (git commit -F ...). Written
+# OUTSIDE OUTPUT_DIR (see COMMIT_MSG above) so it is never committed/published.
 {
 	printf 'release: firmware %s\n\n' "$VERSION"
 	printf 'Prebuilt, fully-validated PIC10F320 firmware images for %s.\n\n' "$VERSION"
 	printf 'Built from %s with the toolchain pinned in TOOLCHAIN.adoc.\n' "$GIT_SHORT"
-	printf 'Validation: make test-variants + make test-mutation + %s-h parallel soak\n' "$hours"
+	printf 'Validation: make test-variants + make test-mutation + a %s-h simulated-time parallel soak\n' "$hours"
 	printf 'of every output variant (evidence under release/%s/evidence/).\n\n' "$VERSION"
 	printf 'Reproducibility is pinned by release/%s/SHA256SUMS and verified on a\n' "$VERSION"
 	printf 'clean runner by .github/workflows/release.yml when the tag is pushed.\n'
-} > "$OUTPUT_DIR/commit_msg.txt"
+} > "$COMMIT_MSG"
 
 # Fold evidence in and finish.
 ls -1 "$OUTPUT_DIR" >&2
@@ -458,7 +475,7 @@ ls -1 "$OUTPUT_DIR" >&2
 if [ "$DRY_RUN" -eq 1 ]; then
 	section "DRY RUN complete"
 	warn "This was a rehearsal with a short soak. Output staged at $OUTPUT_DIR is NOT a real release."
-	warn "Re-run WITHOUT --dry-run (full 24-h soak) to produce a publishable release."
+	warn "Re-run WITHOUT --dry-run (full 24-h simulated soak) to produce a publishable release."
 	exit 0
 fi
 
@@ -479,9 +496,10 @@ runner and publishes the GitHub Release.
   gpg --armor --detach-sign $OUTPUT_DIR/SHA256SUMS
   #    (minisign alternative: minisign -Sm $OUTPUT_DIR/SHA256SUMS)
 
-  # 3. commit the whole release dir (uses the generated message)
+  # 3. commit the whole release dir (uses the generated message at the repo
+  #    root -- commit_msg.txt is git-ignored and is NOT part of the release)
   git add $OUTPUT_DIR
-  git commit -F $OUTPUT_DIR/commit_msg.txt
+  git commit -F $COMMIT_MSG
 
   # 4. create a SIGNED, annotated tag on that commit
   git tag -s $VERSION -m "Firmware release $VERSION"

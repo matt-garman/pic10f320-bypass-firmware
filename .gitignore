@@ -26,5 +26,10 @@ coverage/
 *.gcno
 *.gcov
 
+# release scaffolding: scripts/make-release.sh writes the suggested git commit
+# message here for `git commit -F`. It is NOT a release artifact (it must stay
+# out of release/<version>/) and must not trip the clean-tree release gate.
+/commit_msg.txt
+
 # claude code
 .claude/

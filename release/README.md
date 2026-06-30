@@ -20,7 +20,9 @@ validation suite — backs these binaries, through two mechanisms:
    the firmware↔model equivalence trace + the fault-injection harness +
    CONFIG-word + gpsim functional + coverage), `make test-mutation` (inject
    firmware/model faults and confirm the suite kills them), and a **24-hour
-   libgpsim soak of every output variant** (logs under `evidence/`).
+   libgpsim soak of every output variant** — 24 h of *simulated* MCU operation
+   per variant (gpsim runs the core faster than real time, so the wall-clock
+   cost is correspondingly shorter); logs under `evidence/`.
 
 2. **Reproducibility.** The Intel-HEX images are byte-deterministic for a fixed
    toolchain — XC8's ihex output contains only the program's code/config bytes,
@@ -38,17 +40,25 @@ git tag, so you can additionally verify the maintainer vouched for the bytes.
 
 ## Which image do I want?
 
-Images are named `bypass_mcu_<variant>_pic10f320.hex`:
+Images are named `bypass_mcu_<variant>_pic10f320.hex`. There are **five**: the
+three output stages below, with each analog-switch stage built in two control-pin
+drive polarities — an inverting **CD4053** (driven through a MOSFET inverter, as
+used for a 9–18 V switch rail) and a direct-drive **TMUX4053** (driven at logic
+level):
 
-| variant         | switching hardware                                      |
-|-----------------|---------------------------------------------------------|
-| `cd4053-simple` | CD4053 / TMUX4053 analog switch, simple (2 sections)    |
-| `cd4053-mute`   | CD4053 / TMUX4053 with mute-before-switch (3 sections)  |
-| `tq2-relay`     | Panasonic TQ2-L2-5V latching relay                      |
+| variant           | switching hardware                                          |
+|-------------------|-------------------------------------------------------------|
+| `cd4053-simple`   | CD4053 analog switch, simple — 2 sections (inverting drive) |
+| `tmux4053-simple` | TMUX4053 analog switch, simple — 2 sections (direct drive)  |
+| `cd4053-mute`     | CD4053 with mute-before-switch — 3 sections (inverting)     |
+| `tmux4053-mute`   | TMUX4053 with mute-before-switch — 3 sections (direct)      |
+| `tq2-relay`       | Panasonic TQ2-L2-5V latching relay                          |
 
-All three target the **PIC10F320** at 16 MHz (INTOSC). The per-release
-`MANIFEST.md` lists every image with its flash-word usage and exact flashing
-command.
+The `cd4053-*` and `tmux4053-*` images differ only in control-pin drive polarity:
+pick **CD4053** when the analog switch is driven through a MOSFET inverter, or
+**TMUX4053** when it is driven directly at logic level. All five target the
+**PIC10F320** at 16 MHz (INTOSC). The per-release `MANIFEST.md` lists every image
+with its flash-word usage and exact flashing command.
 
 ## Verify a download
 
@@ -80,7 +90,9 @@ git checkout vX.Y.Z
 # install the pinned toolchain (see TOOLCHAIN.adoc), then build every variant:
 make clean
 make all PIC_VARIANT=cd4053-simple
+make all PIC_VARIANT=tmux4053-simple
 make all PIC_VARIANT=cd4053-mute
+make all PIC_VARIANT=tmux4053-mute
 make all PIC_VARIANT=tq2-relay
 sha256sum -c release/vX.Y.Z/SHA256SUMS
 ```
