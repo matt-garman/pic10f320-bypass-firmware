@@ -1,5 +1,5 @@
 // Copyright (c) Matthew Garman.  All rights reserved.
-// Licensed under the MIT License. See LICENSE in the project root for
+// Licensed under the MIT License.  See LICENSE in the project root for
 // license information.
 
 
@@ -34,9 +34,9 @@
 #define PRESSED_THRESH  (8U)
 
 
-// PIC10F320 pin map: PORTA/TRISA/LATA bit positions. The PIC10F320 has four
+// PIC10F320 pin map: PORTA/TRISA/LATA bit positions.  The PIC10F320 has four
 // GPIO pins: RA0, RA1, RA2 are bidirectional, and RA3 is INPUT-ONLY (it
-// shares MCLR/VPP; with MCLRE=OFF it is a plain digital input). So the
+// shares MCLR/VPP; with MCLRE=OFF it is a plain digital input).  So the
 // footswitch (an input) goes on RA3, freeing RA0-RA2 as the three outputs.
 //
 // footswitch and status LED pins are common across all output variants
@@ -82,7 +82,7 @@
 // Macro value is the output-bit set, interpreted by
 // hw_configure_output_pins(); on PIC: TRISA bit 0 = output.
 //
-// All three variants use RA0..RA2:
+// All output schemes use RA0..RA2:
 //    relay = LED(RA0), RESET(RA1), SET(RA2)
 //    mute = LED(RA0), CTL1(RA1), CTL2(RA2)
 //    cd4053-simple = LED(RA0), CD4053(RA1), leaving RA2 a spare driven low
@@ -92,7 +92,7 @@
 
 
 // Upper bound for values stored in the uint8_t debounce counter, as an
-// UNSIGNED constant. We deliberately do NOT use <stdint.h>'s UINT8_MAX: by C
+// UNSIGNED constant.  We deliberately do NOT use <stdint.h>'s UINT8_MAX: by C
 // integer-promotion rules a uint8_t promotes to (signed) int, so UINT8_MAX
 // itself has type int.  Comparing it to our unsigned thresholds is an
 // essential-type-category mix (MISRA 10.4), and its expansion (0x7f*2+1) also
@@ -119,7 +119,7 @@
 
 
 // static_assert() shim for xc8-cc
-//   - XC8 v3.10 does only supports C99 (not C11), which does not have
+//   - XC8 v3.10 supports only C99 (not C11), which does not have
 //     static_assert() in <assert.h>
 //   - this firmware makes extensive use of static_assert() compile-time
 //     checks
@@ -130,7 +130,7 @@
 #endif
 
 // MCU-neutral threshold invariants -- identical across all shells, so defined
-// once here. Evaluated at file scope (zero runtime cost); a violation fails the
+// once here.  Evaluated at file scope (zero runtime cost); a violation fails the
 // build of every shell that includes this header.
 static_assert(RELEASE_THRESH < DEBOUNCE_COUNTER_MAX, "RELEASE_THRESH >= UINT8_MAX");
 static_assert(RELEASE_THRESH > 0U,                   "RELEASE_THRESH <= 0");
@@ -139,7 +139,7 @@ static_assert(PRESSED_THRESH < DEBOUNCE_COUNTER_MAX, "PRESSED_THRESH >= UINT8_MA
 static_assert(PRESSED_THRESH > 0U,                   "PRESSED_THRESH <= 0");
 
 // pin-map sanity: the PIC pin map hard-codes PORTA bit positions as literals
-// (0U,1U,2U,3U). Pin them at compile time against the DFP's _PORTA_RAx_POSN
+// (0U,1U,2U,3U).  Pin them at compile time against the DFP's _PORTA_RAx_POSN
 // so a typo in the map or a DFP change can never silently misroute a pin
 static_assert(FOOTSW_PIN  == _PORTA_RA3_POSN, "FOOTSW_PIN must be RA3");
 static_assert(LED_PIN     == _PORTA_RA0_POSN, "LED_PIN must be RA0");
@@ -151,11 +151,11 @@ static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCC
 
 
 // Watchdog safety margin: formalises the hand-calculated budget described in
-// init()'s WDTCON comment as a build-time invariant. The longest stretch between
+// init()'s WDTCON comment as a build-time invariant.  The longest stretch between
 // two CLRWDT() "pets" is one tick wait plus the longest BLOCKING output actuation
-// in a toggling tick (the relay/mute pulse). That window must stay safely under
+// in a toggling tick (the relay/mute pulse).  That window must stay safely under
 // the WDT's worst-case (shortest) period, or a healthy main loop could trip the
-// dog. The per-variant pulse term is asserted next to the existing
+// dog.  The per-variant pulse term is asserted next to the existing
 // "pulse < RELEASE_THRESH" check in each hw_is_sanity_check_failed().
 //   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=249 @ FOSC/4 = 4MHz).
 //   WDT_MIN_PERIOD_MS : ~256ms nominal (WDTPS=0x08 = 1:8192 on the ~31kHz
@@ -215,7 +215,7 @@ typedef struct {
 // HARDWARE INTERFACE FUNCTIONS
 //////////////////////////////////////////////////////////////////////////////
 
-// LED_PIN high = status LED lit; low = dark. Outputs are written via LATA.
+// LED_PIN high = status LED lit; low = dark.  Outputs are written via LATA.
 static void hw_led_pin_set_high(void) { LATA |=  (uint8_t)(1U << LED_PIN); }
 static void hw_led_pin_set_low(void)  { LATA &= (uint8_t)~(1U << LED_PIN); }
 
@@ -247,8 +247,8 @@ static uint8_t hw_is_sanity_check_failed(void) {
 }
 
 // default:
-//   CD4053_PIN high -> mosfet on  -> CD4053 control pin low
-//   CD4053_PIN low  -> mosfet off -> CD4053 control pin high
+//   CD4053_PIN high -> MOSFET on  -> CD4053 control pin low
+//   CD4053_PIN low  -> MOSFET off -> CD4053 control pin high
 //
 // with BYPASS_X4053_DIRECT_DRIVE defined:
 //   CD4053_PIN high -> [direct drive] -> TMUX4053 control pin high
@@ -330,7 +330,7 @@ static void hw_set_engaged_state(void) {
 
 // Panasonic TQ-L2-5V specifies a 4ms minimum current pulse for the set/reset
 // coils; multiply by a factor of three for a safety margin
-#  define TQ2_L2_5V_PULSE_MS (12U) 
+#  define TQ2_L2_5V_PULSE_MS (12U)
 
 static uint8_t hw_is_sanity_check_failed(void) {
 
@@ -348,17 +348,17 @@ static uint8_t hw_is_sanity_check_failed(void) {
 }
 
 // force both coils low
-//
-// it's not strictly necessary to set both low; but we do this as a
-// defense-in-depth/belt-and-suspenders convention to prevent accidentally
-// leaving the relay coil active too long and preventing programmer mistakes
+// - it's not strictly necessary to set both low; but we do this as part of
+//   the project's overall defense-in-depth/belt-and-suspenders paradigm
+// - the intent is to prevent accidentally leaving the relay coil active too
+//   long (e.g. programmer mistake)
 static void set_relay_coils_low(void) {
     hw_pin_set_low(RELAY_RESET_PIN);
     hw_pin_set_low(RELAY_SET_PIN);
 }
 
 static void hw_set_bypass_state(void) {
-    set_relay_coils_low(); // re-assesrt expected state (both coils should already be low)
+    set_relay_coils_low(); // re-assert expected state (both coils should already be low)
 
     hw_led_pin_set_low(); // dark status LED
 
@@ -369,7 +369,7 @@ static void hw_set_bypass_state(void) {
 }
 
 static void hw_set_engaged_state(void) {
-    set_relay_coils_low(); // re-assesrt expected state (both coils should already be low)
+    set_relay_coils_low(); // re-assert expected state (both coils should already be low)
 
     hw_led_pin_set_high(); // light status LED
 
@@ -388,7 +388,7 @@ static void hw_set_engaged_state(void) {
 
 
 // infinite-loop function to force a watchdog reset, for critical, unrecoverable
-// errors (presumably ultra-rare events: cosmic rays, extreme EMI). Disables
+// errors (presumably ultra-rare events: cosmic rays, extreme EMI).  Disables
 // interrupts first so nothing can pet the dog.
 //
 // IMPORTANT: relies on the watchdog being active (WDTE=ON in CONFIG); without
@@ -410,9 +410,9 @@ static pin_state_t hw_read_footswitch(void) {
 }
 
 
-// non-zero IFF the footswitch weak pull-up is genuinely active. The PIC weak
+// non-zero IFF the footswitch weak pull-up is genuinely active.  The PIC weak
 // pull-up has a TWO-part enable: the per-pin WPUA latch AND the global,
-// active-low OPTION_REG.nWPUEN. An SEU/EMI flip of EITHER silently disables the
+// active-low OPTION_REG.nWPUEN.  An SEU/EMI flip of EITHER silently disables the
 // pull-up, so both are checked.
 //
 // The two volatile SFRs are read into locals first so the && combines two plain
@@ -443,22 +443,22 @@ static debounce_context_t ctx_;
 // called at power-on, and after a reset (e.g. brown-out or watchdog timeout)
 static void init(void) {
 
-    // Pet the WDT first thing, mirroring the AVR shell's "re-arm first". Unlike
-    // the AVR -- whose WDTCR collapses to the ~16ms minimum after a WDRF,
-    // creating a short post-reset reset-loop hazard -- the PIC has no such
-    // window: WDTE=ON runs the WDT from reset at its ~2s POR-default prescale
-    // (1:65536 on the 31kHz LFINTOSC; confirm WDTCON's reset value in
-    // DS40001585), which dwarfs init() + the <=12ms bypass pulse. init()
-    // narrows the period to ~256ms afterward (WDTPS=0x08). This early pet is
-    // therefore belt-and-suspenders, not required -- it documents why no early
-    // arming is needed and costs one instruction.
+    // Pet the WDT first thing, mirroring the AVR shell's "re-arm first".
+    // Unlike the AVR -- whose WDTCR collapses to the ~16ms minimum after a
+    // WDRF, creating a short post-reset reset-loop hazard -- the PIC has no
+    // such window: WDTE=ON runs the WDT from reset at its ~2s POR-default
+    // prescale (1:65536 on the 31kHz LFINTOSC; confirm WDTCON's reset value
+    // in DS40001585), which dwarfs init() + the <=12ms bypass pulse.  init()
+    // narrows the period to ~256ms afterward (WDTPS=0x08).  This early pet is
+    // therefore belt-and-suspenders, not required -- it documents why no
+    // early arming is needed and costs one instruction.
 
     CLRWDT(); // reset the WDT countdown ("pet the dog")
 
 
     // configure exactly the pins in output_mask as outputs (TRISA bit = 0); all
-    // other pins are left as inputs (TRISA bit = 1). The selected pins are made
-    // digital (ANSELA bit = 0) and driven low (LATA bit = 0). RA3 is input-only and
+    // other pins are left as inputs (TRISA bit = 1).  The selected pins are made
+    // digital (ANSELA bit = 0) and driven low (LATA bit = 0).  RA3 is input-only and
     // always remains an input (its TRISA bit reads 1).
     LATA   &= (uint8_t)~BYPASS_OUTPUT_DDR_MASK;                     // selected pins -> low
     TRISA   = (uint8_t)((uint8_t)~BYPASS_OUTPUT_DDR_MASK & 0x0FU);  // mask pins = output, rest = input
@@ -473,8 +473,8 @@ static void init(void) {
     // ANSELA/pull-up writes here do not disturb the output-pin direction
     // setup.
     //
-    // HFINTOSC = 16 MHz (IRCF = 0b111). Must match _XTAL_FREQ (asserted below),
-    // which the relay/mute drivers' __delay_ms() relies on.
+    // HFINTOSC = 16 MHz (IRCF = 0b111).  Must match _XTAL_FREQ (asserted
+    // below), which the relay/mute drivers' __delay_ms() relies on.
     OSCCONbits.IRCF = 0x07U;
 
     // entire port digital -- the I/O pins power up as analog inputs.
@@ -487,11 +487,11 @@ static void init(void) {
     OPTION_REGbits.nWPUEN = 0; // enable weak pull-ups globally (active-low)
 
     // ~256ms (WDTPS = 0b01000 = 1:8192 on the ~31kHz LFINTOSC), mirroring the
-    // AVR shell's 250ms. The LFINTOSC has ±25% tolerance (datasheet OS09) and
-    // the WDT period is characterized at -37%/+69% (param 31), so worst-case
-    // it is still ~160ms -- comfortably > the ~14ms worst-case pet-to-pet
-    // window (1ms tick + 12ms relay coil pulse), unlike the prior 32ms (~1.4x
-    // margin).
+    // AVR shell's 250ms.  The LFINTOSC has ±25% tolerance (datasheet OS09)
+    // and the WDT period is characterized at -37%/+69% (param 31), so
+    // worst-case it is still ~160ms -- comfortably > the ~14ms worst-case
+    // pet-to-pet window (1ms tick + 12ms relay coil pulse), unlike the prior
+    // 32ms (~1.4x margin).
     WDTCONbits.WDTPS = 0x08U;
 
 
@@ -515,15 +515,17 @@ static void init(void) {
 
 
 
-    // LAST: start + clear the tick, immediately before the loop, so no compare
-    // match accumulated during init is mistaken for the first real tick.
+    // LAST: start + clear the tick, immediately before the loop, so no
+    // compare match accumulated during init is mistaken for the first real
+    // tick.
     //
-    // configure + start the 1ms tick on TMR2, polled (no interrupt). At FOSC=16MHz
-    // the timer clock is FOSC/4 = 4MHz; the 1:16 PREscaler (T2CKPS) -> 250kHz, and
-    // PR2=249 -> (249+1) = 250 counts = 1ms per period. The output POSTscaler
-    // (T2OUTPS) is set to 1:1, so TMR2IF asserts on every PR2 match (once per 1ms),
-    // not once per N matches. MUST run AFTER any blocking output actuation so a
-    // TMR2IF that set during init is not mistaken for the first real tick.
+    // configure + start the 1ms tick on TMR2, polled (no interrupt).  At
+    // FOSC=16MHz the timer clock is FOSC/4 = 4MHz; the 1:16 PREscaler
+    // (T2CKPS) -> 250kHz, and PR2=249 -> (249+1) = 250 counts = 1ms per
+    // period.  The output POSTscaler (T2OUTPS) is set to 1:1, so TMR2IF
+    // asserts on every PR2 match (once per 1ms), not once per N matches.
+    // MUST run AFTER any blocking output actuation so a TMR2IF that set
+    // during init is not mistaken for the first real tick.
     PR2   = 249U;        // 1ms period
     T2CON = 0x07U;       // T2CKPS = 0b11 (1:16 prescale), TMR2ON = 1
     PIR1bits.TMR2IF = 0; // start clean
@@ -594,7 +596,7 @@ void main(void) {
                         ctx_.debounce_counter = RELEASE_THRESH;
                         ctx_.program_state = RELEASE_DEBOUNCE_WAIT;
                         if (BYPASS == ctx_.effect_state)
-                        { 
+                        {
                             ctx_.effect_state = ENGAGED;
                             hw_set_engaged_state();
                         } else { // ENGAGED == ctx_.effect_state
