@@ -176,17 +176,37 @@ static void soak_run_ms(unsigned ms) {
     sample_led();   // track LED edges at each ms boundary
 }
 
+// A toggle drives a BLOCKING output actuation (the relay coil pulse / mute
+// pulse) during which the firmware busy-waits in __delay_ms() and therefore
+// does NOT sample the footswitch -- the debounce integrator is frozen for the
+// whole pulse. Every hold window below must budget for that lost sampling time
+// on top of the debounce threshold, or a pulse straddling a window can leave
+// the integrator one tick short of re-arming and swallow the next press.
+//
+// The firmware guarantees (a per-variant static_assert in each
+// hw_is_sanity_check_failed()) that the pulse is shorter than RELEASE_THRESH,
+// so one extra RELEASE_THRESH is a variant-agnostic upper bound on the worst-
+// case blocking actuation -- this driver never sees the per-variant pulse width
+// (it only loads the HEX), so it leans on that invariant instead. The prior
+// fixed +10ms margin was smaller than the relay's 12ms coil pulse, so a coil
+// pulse from the noise stream overlapping the drain could leave the integrator
+// at 1 (not 0); "press 1" then could not toggle and the check saw toggles=1.
+#define SOAK_ACTUATION_GUARD_MS  (RELEASE_THRESH)   // >= worst-case blocking pulse
+#define SOAK_HOLD_SLACK_MS       (10u)              // tick-phase granularity slack
+#define SOAK_PRESS_HOLD_MS       (PRESSED_THRESH + SOAK_ACTUATION_GUARD_MS + SOAK_HOLD_SLACK_MS)
+#define SOAK_RELEASE_HOLD_MS     (RELEASE_THRESH + SOAK_ACTUATION_GUARD_MS + SOAK_HOLD_SLACK_MS)
+
 // ---- 2-press round-trip liveness check --------------------------------------
 static void soak_liveness_check(uint32_t sim_ms) {
     footsw_set(0);
-    soak_run_ms(RELEASE_THRESH + 10u);          // drain release-lockout
+    soak_run_ms(SOAK_RELEASE_HOLD_MS);          // drain release-lockout (+ any in-flight pulse)
     guint64 before = g_led_changes;
     int led_start  = g_led_level;
 
-    footsw_set(1); soak_run_ms(PRESSED_THRESH + 10u);   // press 1
-    footsw_set(0); soak_run_ms(RELEASE_THRESH + 10u);
-    footsw_set(1); soak_run_ms(PRESSED_THRESH + 10u);   // press 2
-    footsw_set(0); soak_run_ms(RELEASE_THRESH + 10u);
+    footsw_set(1); soak_run_ms(SOAK_PRESS_HOLD_MS);     // press 1
+    footsw_set(0); soak_run_ms(SOAK_RELEASE_HOLD_MS);
+    footsw_set(1); soak_run_ms(SOAK_PRESS_HOLD_MS);     // press 2
+    footsw_set(0); soak_run_ms(SOAK_RELEASE_HOLD_MS);
 
     guint64 delta = g_led_changes - before;
     g_total_checks++;
