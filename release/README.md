@@ -16,7 +16,7 @@ validation suite — backs these binaries, through two mechanisms:
 1. **Provenance.** Every release carries a `MANIFEST.md` recording the exact
    source commit, the pinned toolchain versions, the per-image flash usage /
    CONFIG word, and the validation evidence: `make test-variants` (the full
-   per-variant gate — static analysis + the golden-model host/formal suite +
+   per-variant gate — static analysis + the reference-model host/formal suite +
    the firmware↔model equivalence trace + the fault-injection harness +
    CONFIG-word + gpsim functional + coverage), `make test-mutation` (inject
    firmware/model faults and confirm the suite kills them), and a **24-hour

@@ -563,7 +563,7 @@ static void test_asymmetric_emi_bursts(void) {
 // regression lock but does not prove the
 // firmware is correct for ALL seeds -- a seed-dependent anomaly would pass the
 // fixed-seed test and only surface in the field. This runs many seeds through
-// the golden model (fast: hundreds of seeds x a long stream in well under a
+// the reference model (fast: hundreds of seeds x a long stream in well under a
 // second) and, for each, asserts the invariants that must hold regardless of
 // input: (a) every state stays in range, (b) the toggle count never exceeds the
 // physical ceiling, and (c) the final effect-state parity matches the toggle
@@ -636,7 +636,7 @@ int main(void) {
     test_power_on_robustness();
     test_asymmetric_emi_bursts();
 
-    printf("\nhost golden-model tests: %d checks, %d failures\n",
+    printf("\nhost reference-model tests: %d checks, %d failures\n",
            g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

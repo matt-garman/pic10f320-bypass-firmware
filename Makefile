@@ -1,4 +1,4 @@
-# Makefile -- PIC10F320 bypass firmware (single-file, CD4053-simple only)
+# Makefile -- PIC10F320 bypass firmware (single-file, five output variants)
 #
 # The firmware is tiny; this Makefile carries the validation. The PIC10F320 has
 # 256 words of program memory and 64 bytes of RAM -- HALF the flash of the
@@ -676,14 +676,15 @@ help:
 	@echo "  test-variants   run \`make test\` for ALL variants ($(PIC_VARIANTS_ALL))"
 	@echo "  test-config     verify the CONFIG word emitted into the built HEX"
 	@echo "  test-gpsim      register-level functional test of the HEX in gpsim"
-	@echo "  test-host       golden-model algorithm tests (host, variant-agnostic)"
+	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
 	@echo "  test-symbolic-klee  same properties under KLEE (if installed)"
 	@echo "  test-cbmc       CBMC SAT/SMT proof of the vendored model (if installed)"
 	@echo "  test-formal     model-check + symbolic + cbmc"
 	@echo "  test-equiv      prove the real firmware == model, tick-for-tick"
-	@echo "  test-actuation  verify the mute/relay mid-actuation pin pattern + pulse width"
+	@echo "  test-actuation  verify per-variant control pins (RA1/RA2): settled pattern every"
+	@echo "                  tick (all variants), plus mute/relay mid-actuation transient + width"
 	@echo "  test-fault      corrupt state/SFRs, verify the WDT-reset defensive path"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
@@ -691,7 +692,7 @@ help:
 	@echo "Analysis:"
 	@echo "  analyze         cppcheck bug-finding + MISRA-C:2012 (static analysis)"
 	@echo "  analyze-cppcheck / analyze-misra  individual analysis passes"
-	@echo "  coverage        human-readable golden-model coverage report"
+	@echo "  coverage        human-readable reference-model coverage report"
 	@echo "  coverage-check  fail if model coverage < COVERAGE_MIN ($(COVERAGE_MIN)%)"
 	@echo "  coverage-check-fw  fail unless every shipping firmware line is exercised"
 	@echo "Release:"

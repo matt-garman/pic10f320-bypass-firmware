@@ -12,7 +12,7 @@ name: CI
 # already exercises all five output variants (cd4053-simple, tmux4053-simple,
 # cd4053-mute, tmux4053-mute, tq2-relay), each through the whole `make test` gate
 # -- static analysis
-# (cppcheck + MISRA-C:2012), the golden-model host/formal suite (unit + property
+# (cppcheck + MISRA-C:2012), the reference-model host/formal suite (unit + property
 # + exhaustive state-space + symbolic + CBMC), the firmware<->model equivalence
 # trace, the firmware fault-injection harness, the CONFIG-word check, the gpsim
 # register-level functional test, and the model + firmware coverage gates. The

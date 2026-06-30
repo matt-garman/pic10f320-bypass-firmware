@@ -98,7 +98,7 @@ uint8_t fw_tick_lata(int i) { return (i >= 0 && i < g_tick_lata_n) ? g_tick_lata
 // --- per-tick internal-state capture -----------------------------------------
 // The equivalence test originally compared only the LED output (RA0). But the
 // parent project's simavr lock-step test compares the firmware's INTERNAL state
-// (program_state, effect_state, debounce_counter) against the golden model every
+// (program_state, effect_state, debounce_counter) against the reference model every
 // tick -- a strictly stronger proof, since an internal-state divergence that does
 // not yet manifest on the LED would go undetected by an output-only comparison.
 // Recording ctx_ at the CLRWDT hook (end of each main-loop iteration, after the
