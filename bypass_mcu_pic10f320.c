@@ -303,6 +303,14 @@ static uint8_t hw_is_sanity_check_failed(void) {
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_CTL1) | (1U << CD4053_CTL2)));
 }
 
+// wrap this into a function to save firmware space
+// direct/inline use of __delay_ms() in the hw_set_xxx_state() calls below
+// duplicates code and blows our 256-word flash budget of the PIC10F320;
+// wrapping this into a single re-used function saves precious flash space
+static void hw_x4053_mute_delay(void) {
+    __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
+}
+
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
 //
@@ -325,7 +333,7 @@ static void hw_set_bypass_state(void) {
     hw_led_pin_set_low(); // dark status LED
 
     hw_x4053_ctl_high(CD4053_CTL1); // MUTE
-    __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
+    hw_x4053_mute_delay(); // busy sleep for pre-switch mute time
 
     hw_x4053_ctl_high(CD4053_CTL2); // un-mute in BYPASS state
 }
@@ -337,7 +345,7 @@ static void hw_set_engaged_state(void) {
     hw_led_pin_set_high(); // light status LED
 
     hw_x4053_ctl_low(CD4053_CTL2); // MUTE
-    __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
+    hw_x4053_mute_delay(); // busy sleep for pre-switch mute time
 
     hw_x4053_ctl_low(CD4053_CTL1); // un-mute in ENGAGED state
 }
@@ -375,13 +383,19 @@ static void set_relay_coils_low(void) {
     hw_pin_set_low(RELAY_SET_PIN);
 }
 
+// wrap this into a function to save firmware space
+// see notes for hw_x4053_mute_delay() above
+static void hw_tq2_pulse_delay(void) {
+    __delay_ms(TQ2_L2_5V_PULSE_MS);   // busy sleep for coil pulse time
+}
+
 static void hw_set_bypass_state(void) {
     set_relay_coils_low(); // re-assert expected state (both coils should already be low)
 
     hw_led_pin_set_low(); // dark status LED
 
     hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil
-    __delay_ms(TQ2_L2_5V_PULSE_MS);   // busy sleep for coil pulse time
+    hw_tq2_pulse_delay();             // busy sleep for coil pulse time
 
     set_relay_coils_low(); // done pulsing, force both coils low
 }
@@ -392,7 +406,7 @@ static void hw_set_engaged_state(void) {
     hw_led_pin_set_high(); // light status LED
 
     hw_pin_set_high(RELAY_SET_PIN); // pulse set coil
-    __delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
+    hw_tq2_pulse_delay();           // busy sleep for coil pulse time
 
     set_relay_coils_low(); // done pulsing, force both coils low
 }
