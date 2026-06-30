@@ -95,31 +95,38 @@ static int     g_tick_lata_n; // number of settled per-tick LATA samples recorde
 int     fw_tick_count(void) { return g_tick_lata_n; }
 uint8_t fw_tick_lata(int i) { return (i >= 0 && i < g_tick_lata_n) ? g_tick_lata[i] : 0xFFu; }
 
+// --- per-tick internal-state capture -----------------------------------------
+// The equivalence test originally compared only the LED output (RA0). But the
+// parent project's simavr lock-step test compares the firmware's INTERNAL state
+// (program_state, effect_state, debounce_counter) against the golden model every
+// tick -- a strictly stronger proof, since an internal-state divergence that does
+// not yet manifest on the LED would go undetected by an output-only comparison.
+// Recording ctx_ at the CLRWDT hook (end of each main-loop iteration, after the
+// state machine has run) gives the post-step state for each tick, which the
+// model's step() also returns, so the equivalence test can now compare internal
+// state tick-for-tick -- matching the parent's co-simulation without simavr.
+typedef struct {
+    uint8_t program_state;
+    uint8_t effect_state;
+    uint8_t debounce_counter;
+} fw_internal_state_t;
+static fw_internal_state_t g_tick_state[FW_TICK_TRACE_MAX];
+
+int             fw_tick_state_count(void) { return g_tick_lata_n; }
+uint8_t         fw_tick_ps(int i)  { return (i >= 0 && i < g_tick_lata_n) ? g_tick_state[i].program_state    : 0xFFu; }
+uint8_t         fw_tick_es(int i)  { return (i >= 0 && i < g_tick_lata_n) ? g_tick_state[i].effect_state     : 0xFFu; }
+uint8_t         fw_tick_dc(int i)  { return (i >= 0 && i < g_tick_lata_n) ? g_tick_state[i].debounce_counter : 0xFFu; }
+
 // Present the footswitch level for tick i on RA3 (pressed => RA3 low).
 static void present_footswitch(int i) {
     if (g_fsw[i]) { PORTA &= (uint8_t)~0x08u; } // pressed -> low
     else          { PORTA |=  (uint8_t) 0x08u; } // released -> high
 }
 
-// CLRWDT() hook: fires once per firmware loop iteration (plus once inside init).
-void bypass_equiv_on_clrwdt(void) {
-    g_clrwdt_calls++;
-    if (g_clrwdt_calls == 1) {
-        return; // init()'s initial "pet the dog", before the main loop starts
-    }
-    // A main-loop iteration just completed: capture the status-LED (RA0) output
-    // for this tick -- the variant-independent witness of effect state.
-    g_trace[g_tick] = (uint8_t)(LATA & 0x01u);
-    if (g_tick < FW_TICK_TRACE_MAX) {   // full SETTLED LATA for this tick
-        g_tick_lata[g_tick] = LATA;
-        g_tick_lata_n = g_tick + 1;
-    }
-    g_tick++;
-    if (g_tick >= g_n) {
-        longjmp(g_done, 1); // stimulus exhausted -> unwind out of fw_main()
-    }
-    present_footswitch(g_tick); // set the level the next iteration will read
-}
+// CLRWDT() hook: prototype only here; the full definition follows the firmware
+// #include below, where ctx_ (the firmware's debounce context) is visible for
+// the per-tick internal-state capture.
+void bypass_equiv_on_clrwdt(void);
 
 // Safety net: a real firmware fault (sanity-check failure) would enter
 // hw_force_wdt_reset()'s infinite loop with no CLRWDT inside, hanging the host.
@@ -135,13 +142,38 @@ static void on_alarm(int sig) {
 // Bring in the real firmware. -Dmain=fw_main renames its entry point.
 #include "../../bypass_mcu_pic10f320.c"
 
+// CLRWDT() hook: fires once per firmware loop iteration (plus once inside init).
+// Defined here (after the firmware #include) so ctx_ is visible for the per-tick
+// internal-state capture.
+void bypass_equiv_on_clrwdt(void) {
+    g_clrwdt_calls++;
+    if (g_clrwdt_calls == 1) {
+        return; // init()'s initial "pet the dog", before the main loop starts
+    }
+    // A main-loop iteration just completed: capture the status-LED (RA0) output
+    // for this tick -- the variant-independent witness of effect state.
+    g_trace[g_tick] = (uint8_t)(LATA & 0x01u);
+    if (g_tick < FW_TICK_TRACE_MAX) {   // full SETTLED LATA + internal state
+        g_tick_lata[g_tick] = LATA;
+        g_tick_state[g_tick].program_state    = (uint8_t)ctx_.program_state;
+        g_tick_state[g_tick].effect_state     = (uint8_t)ctx_.effect_state;
+        g_tick_state[g_tick].debounce_counter = ctx_.debounce_counter;
+        g_tick_lata_n = g_tick + 1;
+    }
+    g_tick++;
+    if (g_tick >= g_n) {
+        longjmp(g_done, 1); // stimulus exhausted -> unwind out of fw_main()
+    }
+    present_footswitch(g_tick); // set the level the next iteration will read
+}
+
 // Run the firmware over `fsw[0..n-1]`, filling trace[i] with the LED bit
 // (LATA & 0x01) at the end of the tick that consumed fsw[i]. init() samples
 // fsw[0] (power-on level).
 void fw_run(const uint8_t *fsw, int n, uint8_t *trace) {
     g_fsw = fsw; g_n = n; g_tick = 0; g_trace = trace; g_clrwdt_calls = 0;
     g_act_count = 0;    // reset the per-run actuation-snapshot log
-    g_tick_lata_n = 0;  // reset the per-run settled per-tick LATA log
+    g_tick_lata_n = 0;  // reset the per-run settled per-tick LATA + state log
 
     // Reset SFR storage so each run starts from a clean power-on.
     LATA = PORTA = TRISA = ANSELA = WPUA = PR2 = T2CON = 0u;

@@ -1,8 +1,9 @@
 // Firmware<->model equivalence test.
 //
 // Proves that the REAL PIC10F320 firmware (run on the host via fw_harness.c)
-// produces the EXACT same LED/CD4053 output, tick for tick, as the vendored
-// reference model (test/model/bypass_pure.c) for the same footswitch stimulus.
+// produces the EXACT same LED output AND internal state (program_state,
+// effect_state, debounce_counter), tick for tick, as the vendored reference
+// model (test/model/bypass_pure.c) for the same footswitch stimulus.
 // This is what licenses the project's "correctness inherited by derivation"
 // claim concretely: the firmware inlines the model's algorithm to fit flash, and
 // this test pins that the inlining did not change behaviour. It also
@@ -34,6 +35,13 @@
 
 // Provided by fw_harness.c (the real firmware on the host).
 extern void fw_run(const uint8_t *fsw, int n, uint8_t *trace);
+extern uint8_t fw_tick_ps(int i);
+extern uint8_t fw_tick_es(int i);
+extern uint8_t fw_tick_dc(int i);
+
+// Internal-state capture window in fw_harness.c (FW_TICK_TRACE_MAX). Ticks
+// beyond this have no captured state; the state comparison is gated to it.
+#define FW_STATE_CAPTURE_MAX 256
 
 #ifndef EQUIV_EXHAUSTIVE_LEN
 #define EQUIV_EXHAUSTIVE_LEN 18   // 2^18 = 262144 sequences
@@ -111,9 +119,19 @@ static int reachable_states_unvisited(void) {
     return unvisited;
 }
 
-// The reference-model oracle: the same per-tick output trace the firmware should
-// produce. init from fsw[0] (power-on level), then one step() per tick.
-static void model_run(const uint8_t *fsw, int n, uint8_t *trace) {
+// Per-tick internal-state record, matching fw_harness.c's fw_internal_state_t
+// layout. The model's state_t has the same fields in the same order, so the
+// comparison in compare_one() is a direct field-by-field match.
+typedef struct {
+    uint8_t program_state;
+    uint8_t effect_state;
+    uint8_t debounce_counter;
+} fw_state_t;
+
+// The reference-model oracle: the same per-tick output trace and internal state
+// the firmware should produce. init from fsw[0] (power-on level), then one
+// step() per tick.
+static void model_run(const uint8_t *fsw, int n, uint8_t *trace, fw_state_t *ms) {
     pin_state_t const p0 = fsw[0] ? PIN_STATE_LOW : PIN_STATE_HIGH;
     debounce_context_t const c = debounce_init_context(p0);
     state_t s = { (uint8_t)c.program_state, (uint8_t)c.effect_state, c.debounce_counter };
@@ -123,23 +141,45 @@ static void model_run(const uint8_t *fsw, int n, uint8_t *trace) {
         s = r.next;
         mark_state_seen(s);
         trace[i] = (uint8_t)((s.effect_state == ENGAGED) ? 0x01u : 0x00u);
+        ms[i].program_state    = s.program_state;
+        ms[i].effect_state     = s.effect_state;
+        ms[i].debounce_counter = s.debounce_counter;
     }
 }
 
-// Compare one stimulus; report the first diverging tick on mismatch.
+// Compare one stimulus; report the first diverging tick on mismatch (LED output
+// and internal state: program_state, effect_state, debounce_counter).
 static int compare_one(const uint8_t *fsw, int n) {
-    static uint8_t fw_trace[EQUIV_RANDOM_MAXLEN];
-    static uint8_t md_trace[EQUIV_RANDOM_MAXLEN];
+    static uint8_t   fw_trace[EQUIV_RANDOM_MAXLEN];
+    static uint8_t   md_trace[EQUIV_RANDOM_MAXLEN];
+    static fw_state_t md_state[EQUIV_RANDOM_MAXLEN];
     fw_run(fsw, n, fw_trace);
-    model_run(fsw, n, md_trace);
+    model_run(fsw, n, md_trace, md_state);
     g_compared++;
     for (int i = 0; i < n; ++i) {
         if (fw_trace[i] != md_trace[i]) {
             g_failures++;
             fprintf(stderr,
-                "FAIL: divergence at tick %d/%d: firmware LED(RA0)=%u, model=%u\n",
+                "FAIL: LED divergence at tick %d/%d: firmware LED(RA0)=%u, model=%u\n",
                 i, n, fw_trace[i], md_trace[i]);
-            // dump a short window of the stimulus around the divergence
+            int lo = i - 6; if (lo < 0) { lo = 0; }
+            fprintf(stderr, "  stimulus[%d..%d] (1=pressed): ", lo, i);
+            for (int k = lo; k <= i; ++k) { fprintf(stderr, "%d", fsw[k]); }
+            fprintf(stderr, "\n");
+            return 1;
+        }
+        if (i < FW_STATE_CAPTURE_MAX &&
+            (fw_tick_ps(i) != md_state[i].program_state ||
+             fw_tick_es(i) != md_state[i].effect_state  ||
+             fw_tick_dc(i) != md_state[i].debounce_counter)) {
+            g_failures++;
+            fprintf(stderr,
+                "FAIL: internal-state divergence at tick %d/%d: "
+                "fw(ps=%u es=%u dc=%u) model(ps=%u es=%u dc=%u)\n",
+                i, n,
+                fw_tick_ps(i), fw_tick_es(i), fw_tick_dc(i),
+                md_state[i].program_state, md_state[i].effect_state,
+                md_state[i].debounce_counter);
             int lo = i - 6; if (lo < 0) { lo = 0; }
             fprintf(stderr, "  stimulus[%d..%d] (1=pressed): ", lo, i);
             for (int k = lo; k <= i; ++k) { fprintf(stderr, "%d", fsw[k]); }
