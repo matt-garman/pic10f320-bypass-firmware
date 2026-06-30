@@ -3,6 +3,13 @@
 // license information.
 
 
+/*****************************************************************************
+ * NOTE: this source code makes numerous references to the parent project,
+ *       mcu-bypass-firmware:
+ *       https://github.com/matt-garman/mcu-bypass-firmware
+ *****************************************************************************/
+
+
 //
 // PIC10F320 DIP-8 Pinout
 //                                                     +----+
@@ -36,9 +43,10 @@
 #define FOOTSW_PIN      (3U) // RA3 (input-only) + weak pull-up
 #define LED_PIN         (0U) // RA0
 
-#define CD4053_PIN      (1U) // RA1
 
+// RA1/RA2 designation depending on output scheme
 #if defined(OUTPUT_CD4053_SIMPLE)
+#  define CD4053_PIN      (1U) // RA1
 #elif defined(OUTPUT_CD4053_WITH_MUTE)
 #  define CD4053_CTL1     (1U) // RA1
 #  define CD4053_CTL2     (2U) // RA2
@@ -51,28 +59,34 @@
 
 
 
-// see parent project (https://github.com/matt-garman/mcu-bypass-firmware)
-// src/bypass_output_x4053_polarity.h for details; summary:
-//   - CD4053 at 9-18V: MCU drives a MOSFET inverter -> MCU high == 4053 sees LOW
+// see parent project src/bypass_output_x4053_polarity.h and/or
+// DESIGN_DOCUMENTATION.adoc for details; summary:
+//   - CD4053 at 9-18V: MCU at 5V drives a MOSFET inverter -> MCU high -> 4053 sees LOW
 //   - TMUX4053 at logic level: MCU drives the control pin directly
 #if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
-#  define hw_x4053_ctl_high(pin)  hw_pin_set_high(pin)
-#  define hw_x4053_ctl_low(pin)   hw_pin_set_low(pin)
-#else                                  // CD4053 + MOSFET inverter (default)
-#  define hw_x4053_ctl_high(pin)  hw_pin_set_low(pin)
-#  define hw_x4053_ctl_low(pin)   hw_pin_set_high(pin)
+#  define hw_x4053_ctl_high(pin) hw_pin_set_high(pin)
+#  define hw_x4053_ctl_low(pin)  hw_pin_set_low(pin)
+#else                                 // CD4053 + MOSFET inverter (default)
+#  define hw_x4053_ctl_high(pin) hw_pin_set_low(pin)
+#  define hw_x4053_ctl_low(pin)  hw_pin_set_high(pin)
 #endif
 
 
 
-// Bits that must be OUTPUTS (RA0|RA1|RA2). Same macro NAME as the AVR map (the
-// shared drivers consume it); the value is the output-bit set, interpreted by
-// the per-MCU hw_configure_output_pins() (PIC: TRISA bit 0 = output). ("DDR" is
-// legacy AVR wording, kept for a single cross-MCU macro name.)
+// Bits that must be OUTPUTS (RA0|RA1|RA2).
 //
-// All three variants use RA0..RA2: relay = LED(RA0)/RESET(RA1)/SET(RA2);
-// mute = LED(RA0)/CTL1(RA1)/CTL2(RA2); cd4053-simple = LED(RA0)/CD4053(RA1),
-// leaving RA2 a spare driven low. Mask 0x07 for all.
+// Macro name ("DDR") is the AVR Classic convention from the parent project;
+// we keep the DDR naming here to try to maintain conventions between
+// projects.
+//
+// Macro value is the output-bit set, interpreted by
+// hw_configure_output_pins(); on PIC: TRISA bit 0 = output.
+//
+// All three variants use RA0..RA2:
+//    relay = LED(RA0), RESET(RA1), SET(RA2)
+//    mute = LED(RA0), CTL1(RA1), CTL2(RA2)
+//    cd4053-simple = LED(RA0), CD4053(RA1), leaving RA2 a spare driven low
+// Mask 0x07 for all
 #define BYPASS_OUTPUT_DDR_MASK (0x07U)  // RA0|RA1|RA2
 
 
@@ -80,9 +94,9 @@
 // Upper bound for values stored in the uint8_t debounce counter, as an
 // UNSIGNED constant. We deliberately do NOT use <stdint.h>'s UINT8_MAX: by C
 // integer-promotion rules a uint8_t promotes to (signed) int, so UINT8_MAX
-// itself has type int. Comparing it to our unsigned thresholds is an
+// itself has type int.  Comparing it to our unsigned thresholds is an
 // essential-type-category mix (MISRA 10.4), and its expansion (0x7f*2+1) also
-// trips MISRA 12.1. A plain unsigned literal means the same thing and avoids
+// trips MISRA 12.1.  A plain unsigned literal means the same thing and avoids
 // both -- see MISRA_COMPLIANCE.md.
 //
 // Loosely speaking: MISRA-C compliant UINT8_MAX
@@ -105,7 +119,7 @@
 
 
 // static_assert() shim for xc8-cc
-//   - XC8 v3.10 does not support C11, only C99, which does not have
+//   - XC8 v3.10 does only supports C99 (not C11), which does not have
 //     static_assert() in <assert.h>
 //   - this firmware makes extensive use of static_assert() compile-time
 //     checks
@@ -129,7 +143,6 @@ static_assert(PRESSED_THRESH > 0U,                   "PRESSED_THRESH <= 0");
 // so a typo in the map or a DFP change can never silently misroute a pin
 static_assert(FOOTSW_PIN  == _PORTA_RA3_POSN, "FOOTSW_PIN must be RA3");
 static_assert(LED_PIN     == _PORTA_RA0_POSN, "LED_PIN must be RA0");
-static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
 
 // _XTAL_FREQ (a build flag, used by the drivers' __delay_ms) must match the
 // 16MHz HFINTOSC selected in init(), or the coil/mute pulse widths
@@ -137,7 +150,7 @@ static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
 static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCCON IRCF)");
 
 
-// Watchdog safety margin -- formalises the hand-calculated budget described in
+// Watchdog safety margin: formalises the hand-calculated budget described in
 // init()'s WDTCON comment as a build-time invariant. The longest stretch between
 // two CLRWDT() "pets" is one tick wait plus the longest BLOCKING output actuation
 // in a toggling tick (the relay/mute pulse). That window must stay safely under
@@ -179,6 +192,7 @@ typedef enum {
 } effect_state_t;
 
 
+// return type of hw_read_footswitch()
 typedef enum {
     PIN_STATE_LOW = 0,
     PIN_STATE_HIGH
@@ -197,9 +211,8 @@ typedef struct {
 
 
 
-
 //////////////////////////////////////////////////////////////////////////////
-// CROSS-BOUNDARY HW OPS (implement bypass_hw_iface.h)
+// HARDWARE INTERFACE FUNCTIONS
 //////////////////////////////////////////////////////////////////////////////
 
 // LED_PIN high = status LED lit; low = dark. Outputs are written via LATA.
@@ -220,9 +233,6 @@ static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
 }
 
 
-//#define OUTPUT_CD4053_SIMPLE (1)
-//#define OUTPUT_CD4053_WITH_MUTE (1)
-//#define OUTPUT_TQ2_RELAY (1)
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -231,11 +241,18 @@ static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
 
 // assert critical pin directions hold: LED & CD4053 outputs, footswitch input
 static uint8_t hw_is_sanity_check_failed(void) {
+    static_assert(CD4053_PIN  == _PORTA_RA1_POSN, "CD4053_PIN must be RA1");
+
     return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);
 }
 
-// CD4053_PIN high -> mosfet on  -> 4053 control pins low
-// CD4053_PIN low  -> mosfet off -> 4053 control pins high
+// default:
+//   CD4053_PIN high -> mosfet on  -> CD4053 control pin low
+//   CD4053_PIN low  -> mosfet off -> CD4053 control pin high
+//
+// with BYPASS_X4053_DIRECT_DRIVE defined:
+//   CD4053_PIN high -> [direct drive] -> TMUX4053 control pin high
+//   CD4053_PIN low  -> [direct drive] -> TMUX4053 control pin low
 static void hw_set_bypass_state(void) {
     hw_led_pin_set_low();          // dark status LED
     hw_x4053_ctl_high(CD4053_PIN); // set CD4053 pin high
@@ -268,7 +285,7 @@ static uint8_t hw_is_sanity_check_failed(void) {
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_CTL1) | (1U << CD4053_CTL2)));
 }
 
-// See "Improved Scheme With Muting" in parent project (mcu-bypass-firmware)
+// See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
 //
 // NOTE: both set_bypass and set_engaged claim a re-assertion of the state
@@ -331,31 +348,35 @@ static uint8_t hw_is_sanity_check_failed(void) {
 }
 
 // force both coils low
+//
+// it's not strictly necessary to set both low; but we do this as a
+// defense-in-depth/belt-and-suspenders convention to prevent accidentally
+// leaving the relay coil active too long and preventing programmer mistakes
 static void set_relay_coils_low(void) {
     hw_pin_set_low(RELAY_RESET_PIN);
     hw_pin_set_low(RELAY_SET_PIN);
 }
 
 static void hw_set_bypass_state(void) {
-    set_relay_coils_low();
+    set_relay_coils_low(); // re-assesrt expected state (both coils should already be low)
 
-    hw_led_pin_set_low();        // dark status LED
+    hw_led_pin_set_low(); // dark status LED
 
     hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil
-    __delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
+    __delay_ms(TQ2_L2_5V_PULSE_MS);   // busy sleep for coil pulse time
 
-    set_relay_coils_low();
+    set_relay_coils_low(); // done pulsing, force both coils low
 }
 
 static void hw_set_engaged_state(void) {
-    set_relay_coils_low();
+    set_relay_coils_low(); // re-assesrt expected state (both coils should already be low)
 
-    hw_led_pin_set_high();       // light status LED
+    hw_led_pin_set_high(); // light status LED
 
-    hw_pin_set_high(RELAY_SET_PIN);   // pulse set coil
+    hw_pin_set_high(RELAY_SET_PIN); // pulse set coil
     __delay_ms(TQ2_L2_5V_PULSE_MS); // busy sleep for coil pulse time
 
-    set_relay_coils_low();
+    set_relay_coils_low(); // done pulsing, force both coils low
 }
 
 #else
@@ -407,11 +428,11 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 
 
 //////////////////////////////////////////////////////////////////////////////
-// PROGRAM GLOBALS
+// PROGRAM GLOBAL: overall debounce context
 //////////////////////////////////////////////////////////////////////////////
 
-// Overall debounce context.
 static debounce_context_t ctx_;
+
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -459,8 +480,9 @@ static void init(void) {
     // entire port digital -- the I/O pins power up as analog inputs.
     ANSELA = 0x00U;
 
-    // enable the footswitch (RA3) input pull-up; FOOTSW_PIN high = released,
-    // low = pressed. (Belt-and-suspenders alongside any external pull-up.)
+    // enable the footswitch (RA3) input pull-up
+    // FOOTSW_PIN high = released; low = pressed
+    // belt-and-suspenders alongside any external pull-up
     WPUA  |= (uint8_t)(1U << FOOTSW_PIN);
     OPTION_REGbits.nWPUEN = 0; // enable weak pull-ups globally (active-low)
 
@@ -474,8 +496,8 @@ static void init(void) {
 
 
 
-    // driver: default to bypass (may block on the relay/mute pulse, which is
-    // shorter than one WDT period)
+    // default to bypass (may block on the relay/mute pulse, which is shorter
+    // than one WDT period)
     hw_set_bypass_state();
 
     // initialize global switch state from the current footswitch level
@@ -508,27 +530,27 @@ static void init(void) {
 }
 
 
-// program entry point. Model B: a single polled 1ms loop. Each tick we sample +
-// integrate the footswitch and advance the debounce state machine; CLRWDT at
-// the end of every iteration is the main-loop liveness proof.
+// program entry point: a single polled 1ms loop.
+// Each tick we sample + integrate the footswitch and advance the debounce
+// state machine; CLRWDT at the end of every iteration is the main-loop
+// liveness proof.
 void main(void) {
 
     init(); // note: initializes ctx_
 
     for (;;) {
 
-        // pause until the next 1ms tick, then clear the flag. The AVR sleeps
-        // here; the PIC polls TMR2IF (Model B, no sleep) -- same contract,
-        // hence the shared name.
+        // pause until the next 1ms tick, then clear the flag; the PIC polls
+        // TMR2IF (no sleep)
         while (0U == PIR1bits.TMR2IF) { }
         PIR1bits.TMR2IF = 0;
 
 
 
-        // basic sanity checks against outlier events (cosmic rays, extreme EMI);
-        // always checked, regardless of state; force a WDT reset on any
-        // violation. (No timer_isr_called_ guard as on AVR -- the PIC has no
-        // ISR; main-loop liveness is proven by reaching CLRWDT() below.)
+        // basic sanity checks against outlier events (cosmic rays, extreme
+        // EMI); always checked, regardless of state; force a WDT reset on any
+        // violation.
+        // main-loop liveness is proven by reaching CLRWDT() below.
         if ( (ctx_.program_state > RELEASE_DEBOUNCE_WAIT) ||
                 (ctx_.effect_state > ENGAGED) ||
                 // assert footswitch pull-up still enabled
@@ -542,20 +564,13 @@ void main(void) {
 
 
 
-        // debounce_integrate()
+        // inline version of parent project's pure debounce_integrate()
         //
         // sample + integrate this tick (in the main loop, not an ISR)
         //
-        // saturating integrator update
-        // footswitch pin zero (low) == switch closed
-        // footswitch pin one (high) == switch open
-        //
-        // NOTE: ideally we'd make the debounce_counter const, since it is not
-        // modified; however, making it cost makes both parameters const, and that
-        // triggers clang-tidy errors about too-easily-swappable parameters.  MISRA-C
-        // doesn't allow modifying parameters anyway, hence why we immediately make a
-        // local copy of the parameter.  So the parameter is essentially const in
-        // practice, though not explicitly enforced by the compiler.
+        // saturating integrator update:
+        //   footswitch pin zero (low) == switch closed
+        //   footswitch pin one (high) == switch open
         if (PIN_STATE_LOW == hw_read_footswitch()) { // switch closed
             if (ctx_.debounce_counter < RELEASE_THRESH) { ++ctx_.debounce_counter; }
         }
@@ -566,13 +581,9 @@ void main(void) {
 
 
 
-        // debounce_step()
+        // inline version of parent project's pure debounce_step()
         //
-        // advance the debounce state machine.
-        // NOTE: NOT const-qualified (unlike the AVR shell). XC8 places
-        // const-qualified objects in program ROM, so a const local initialized
-        // from a runtime call is rejected ("initializer element is not a
-        // compile-time constant"). A required PIC/XC8 deviation.
+        // advance the debounce state machine
         switch (ctx_.program_state) {
 
             // waiting for the footswitch to be press-debounced
