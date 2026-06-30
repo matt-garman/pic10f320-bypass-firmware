@@ -34,8 +34,8 @@ This is intentionally a separate child project of
   into the firmware is instead **recovered here by proving the inlined firmware
   behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output stage (all fit the 256-word budget):
-  **cd4053-simple 208 (81.2%)**, **cd4053-with-mute 238 (93.0%)**,
-  **tq2-relay 233 (91.0%)**; 10-11 / 64 bytes RAM. The direct-drive
+  **cd4053-simple 226 (88.3%)**, **cd4053-with-mute 250 (97.7%)**,
+  **tq2-relay 246 (96.1%)**; 10-11 / 64 bytes RAM. The direct-drive
   **tmux4053-\*** variants build the same driver source with the
   control-pin polarity flipped — only `bsf`↔`bcf` (both single-word)
   swap — so each matches its `cd4053-*` sibling's word count.

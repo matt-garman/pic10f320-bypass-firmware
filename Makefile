@@ -519,7 +519,7 @@ coverage-check-fw:
 		$(COVERAGE_DIR)/test_fault_cov_drv.gcda $(COVERAGE_DIR)/test_fault_cov_drv.gcno
 	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_FW_DEFS) $(FAULT_INC) \
 		-c $(FAULT_HARNESS) -o $(COVERAGE_DIR)/fw_fault_cov.o
-	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_INC) \
+	@$(HOST_CC) -std=c11 -O0 --coverage $(PIC_OUTPUT_DEF) $(FAULT_INC) \
 		-c $(FAULT_DRIVER) -o $(COVERAGE_DIR)/test_fault_cov_drv.o
 	@$(HOST_CC) --coverage $(COVERAGE_DIR)/fw_fault_cov.o $(COVERAGE_DIR)/test_fault_cov_drv.o \
 		-o $(COVERAGE_DIR)/test_fault_cov
