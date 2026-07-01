@@ -38,7 +38,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
-| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (226 / 250 / 246 for cd4053-simple / -mute / tq2-relay; each tmux4053-\* matches its cd4053-\* sibling). | XC8 |
+| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (202 / 225 / 225 for cd4053-simple / -mute / tq2-relay; each tmux4053-\* matches its cd4053-\* sibling). | XC8 |
 | Bug-finding analysis | `analyze-cppcheck` | No cppcheck findings. | cppcheck (`pic8-enhanced`) |
 | MISRA-C:2012 | `analyze-misra` | Zero MISRA deviations (`../MISRA_COMPLIANCE.md`). | cppcheck + MISRA addon |
 | CONFIG word | `test-config` | The CONFIG word XC8 emitted matches design intent (`0x389E`). | host `gcc` |

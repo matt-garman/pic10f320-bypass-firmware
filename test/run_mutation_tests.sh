@@ -52,7 +52,7 @@ MUTATIONS=(
 # RA0-only equivalence test cannot see -- now killed host-only by test-actuation's
 # settled-LATA check (it was gpsim-only before that check existed).
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
-"bypass_mcu_pic10f320.c	s@hw_x4053_ctl_low(CD4053_PIN)@hw_x4053_ctl_high(CD4053_PIN)@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (set_engaged drives the bypass level); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
+"bypass_mcu_pic10f320.c	s@hw_x4053_ctl_low();@hw_x4053_ctl_high();@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (set_engaged drives the bypass level); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
 # --- firmware: analog-switch control-pin DRIVE POLARITY (CD4053 vs TMUX4053) -------
 # The tmux4053-* variants build the same driver source with the direct-drive
 # polarity (-DBYPASS_X4053_DIRECT_DRIVE), inverting the control-pin LATA bits.
@@ -60,7 +60,7 @@ MUTATIONS=(
 # makes the tmux build settle its CONTROL pins to the wrong state (BYPASS 0x0 not
 # 0x2) while RA0/the LED stay correct -- invisible to equiv (RA0 only), killed by
 # test-actuation's per-tick settled-LATA check for the tmux variant.
-"bypass_mcu_pic10f320.c	s@#  define hw_x4053_ctl_high(pin) hw_pin_set_high(pin)@#  define hw_x4053_ctl_high(pin) hw_pin_set_low(pin)@	PIC_VARIANT=tmux4053-simple test-actuation	FW TMUX4053 direct-drive polarity broken (ctl_high drives low like the CD4053 inverter); tmux bypass control pin settles wrong (RA1 low not high)"
+"bypass_mcu_pic10f320.c	s@static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }@static void hw_x4053_ctl_high(void) { LATA \&= (uint8_t)~(1U << CD4053_PIN); }@	PIC_VARIANT=tmux4053-simple test-actuation	FW TMUX4053 direct-drive polarity broken (ctl_high drives low like the CD4053 inverter); tmux bypass control pin settles wrong (RA1 low not high)"
 "bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-gpsim	FW footswitch read polarity inverted (toggles on release, not press)"
 # --- firmware: 1 ms tick CADENCE (the one mutant only gpsim can kill) ---------------
 # Removing the TMR2IF clear makes the flag latch set, so the `while (TMR2IF==0)` poll
@@ -79,8 +79,8 @@ MUTATIONS=(
 # (RA0 only) and test-gpsim (settled state only) miss them entirely; only
 # test-actuation, which snapshots LATA DURING the pulse, kills them. The target
 # field carries the variant (the gap exists only for mute/relay, not cd4053-simple).
-"bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_SET_PIN); // pulse set coil@hw_pin_set_high(RELAY_RESET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay ENGAGE pulses the RESET coil instead of SET (relay latches backwards; settles to same LATA, so equiv/gpsim miss it)"
-"bypass_mcu_pic10f320.c	s@hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil@hw_pin_set_high(RELAY_SET_PIN); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
+"bypass_mcu_pic10f320.c	s@hw_relay_set_pin_set_high(); // pulse set coil@hw_relay_reset_pin_set_high(); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay ENGAGE pulses the RESET coil instead of SET (relay latches backwards; settles to same LATA, so equiv/gpsim miss it)"
+"bypass_mcu_pic10f320.c	s@hw_relay_reset_pin_set_high(); // pulse reset coil@hw_relay_set_pin_set_high(); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_CTL1     (1U) // RA1@#  define CD4053_CTL1     (2U) // MUTANT@;s@#  define CD4053_CTL2     (2U) // RA2@#  define CD4053_CTL2     (1U) // MUTANT@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute CTL1/CTL2 pins swapped (mute applied to wrong control; mid-mute LATA pattern wrong, settles to same LATA so equiv/gpsim miss it)"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------

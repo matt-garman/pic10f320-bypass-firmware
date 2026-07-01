@@ -59,17 +59,16 @@
 
 
 
-// see parent project src/bypass_output_x4053_polarity.h and/or
-// DESIGN_DOCUMENTATION.adoc for details; summary:
+// CD4053-vs-TMUX4053 control-pin drive polarity. See parent project
+// src/bypass_output_x4053_polarity.h and/or DESIGN_DOCUMENTATION.adoc for
+// details; summary:
 //   - CD4053 at 9-18V: MCU at 5V drives a MOSFET inverter -> MCU high -> 4053 sees LOW
 //   - TMUX4053 at logic level: MCU drives the control pin directly
-#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
-#  define hw_x4053_ctl_high(pin) hw_pin_set_high(pin)
-#  define hw_x4053_ctl_low(pin)  hw_pin_set_low(pin)
-#else                                 // CD4053 + MOSFET inverter (default)
-#  define hw_x4053_ctl_high(pin) hw_pin_set_low(pin)
-#  define hw_x4053_ctl_low(pin)  hw_pin_set_high(pin)
-#endif
+// Each OUTPUT_* block below defines its own per-pin hw_*_high()/hw_*_low()
+// functions (one pair per control pin) under this same BYPASS_X4053_DIRECT_DRIVE
+// #if, rather than a single parametric helper -- see the comment next to the
+// CD4053 SIMPLE block for why.
+
 
 
 
@@ -238,17 +237,21 @@ static void hw_led_pin_set_high(void) { LATA |=  (uint8_t)(1U << LED_PIN); }
 static void hw_led_pin_set_low(void)  { LATA &= (uint8_t)~(1U << LED_PIN); }
 
 
-// - set a GPIO pin high or low
-// - assumes pin was previously configured as output
-static void hw_pin_set_high(uint8_t const pin) { LATA |=  (uint8_t)(1U << pin); }
-static void hw_pin_set_low(uint8_t const pin)  { LATA &= (uint8_t)~(1U << pin); }
-
-
 // sanity-check utility: return non-zero IFF every pin in expected_mask is still
 // configured as an output (its TRISA direction bit is still 0).
 static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
     return (0U == (TRISA & expected_mask));
 }
+
+
+// Per-output-pin set-high/set-low functions live in each OUTPUT_* block below
+// (one pair per control pin), not as a single hw_pin_set_high/low(pin) helper:
+// every call site passes a compile-time-constant pin, but free-tier XC8 does
+// not propagate that constant through a function-call boundary, so a
+// parametric helper compiles to a real runtime shift loop. Baking the bit into
+// each pin's own function lets it collapse to a single bsf/bcf, matching what
+// hw_led_pin_set_high/low above already do.
+
 
 
 
@@ -271,14 +274,25 @@ static uint8_t hw_is_sanity_check_failed(void) {
 // with BYPASS_X4053_DIRECT_DRIVE defined:
 //   CD4053_PIN high -> [direct drive] -> TMUX4053 control pin high
 //   CD4053_PIN low  -> [direct drive] -> TMUX4053 control pin low
+//
+// constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
+// see the comment below hw_output_pins_intact() for why.
+#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
+static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }
+static void hw_x4053_ctl_low(void)  { LATA &= (uint8_t)~(1U << CD4053_PIN); }
+#else                                  // CD4053 + MOSFET inverter (default)
+static void hw_x4053_ctl_high(void) { LATA &= (uint8_t)~(1U << CD4053_PIN); }
+static void hw_x4053_ctl_low(void)  { LATA |=  (uint8_t)(1U << CD4053_PIN); }
+#endif
+
 static void hw_set_bypass_state(void) {
-    hw_led_pin_set_low();          // dark status LED
-    hw_x4053_ctl_high(CD4053_PIN); // set CD4053 pin high
+    hw_led_pin_set_low(); // dark status LED
+    hw_x4053_ctl_high(); // set CD4053 pin high
 }
 
 static void hw_set_engaged_state(void) {
-    hw_led_pin_set_high();         // light status LED
-    hw_x4053_ctl_low(CD4053_PIN);  // set CD4053 pin low
+    hw_led_pin_set_high(); // light status LED
+    hw_x4053_ctl_low();   // set CD4053 pin low
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -311,6 +325,20 @@ static void hw_x4053_mute_delay(void) {
     __delay_ms(CD4053_MUTE_DELAY_MS); // busy sleep for pre-switch mute time
 }
 
+// constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
+// see the comment below hw_output_pins_intact() for why.
+#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
+static void hw_x4053_ctl1_high(void) { LATA |=  (uint8_t)(1U << CD4053_CTL1); }
+static void hw_x4053_ctl1_low(void)  { LATA &= (uint8_t)~(1U << CD4053_CTL1); }
+static void hw_x4053_ctl2_high(void) { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
+static void hw_x4053_ctl2_low(void)  { LATA &= (uint8_t)~(1U << CD4053_CTL2); }
+#else                                  // CD4053 + MOSFET inverter (default)
+static void hw_x4053_ctl1_high(void) { LATA &= (uint8_t)~(1U << CD4053_CTL1); }
+static void hw_x4053_ctl1_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL1); }
+static void hw_x4053_ctl2_high(void) { LATA &= (uint8_t)~(1U << CD4053_CTL2); }
+static void hw_x4053_ctl2_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
+#endif
+ 
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
 //
@@ -327,27 +355,27 @@ static void hw_x4053_mute_delay(void) {
 //          - immediately flips to bypass
 //
 static void hw_set_bypass_state(void) {
-    hw_x4053_ctl_low(CD4053_CTL1); // re-assert previous ENGAGED state
-    hw_x4053_ctl_low(CD4053_CTL2);
+    hw_x4053_ctl1_low(); // re-assert previous ENGAGED state
+    hw_x4053_ctl2_low();
 
     hw_led_pin_set_low(); // dark status LED
 
-    hw_x4053_ctl_high(CD4053_CTL1); // MUTE
+    hw_x4053_ctl1_high(); // MUTE
     hw_x4053_mute_delay(); // busy sleep for pre-switch mute time
 
-    hw_x4053_ctl_high(CD4053_CTL2); // un-mute in BYPASS state
+    hw_x4053_ctl2_high(); // un-mute in BYPASS state
 }
 
 static void hw_set_engaged_state(void) {
-    hw_x4053_ctl_high(CD4053_CTL1); // re-assert previous BYPASS state
-    hw_x4053_ctl_high(CD4053_CTL2);
+    hw_x4053_ctl1_high(); // re-assert previous BYPASS state
+    hw_x4053_ctl2_high();
 
     hw_led_pin_set_high(); // light status LED
 
-    hw_x4053_ctl_low(CD4053_CTL2); // MUTE
+    hw_x4053_ctl2_low(); // MUTE
     hw_x4053_mute_delay(); // busy sleep for pre-switch mute time
 
-    hw_x4053_ctl_low(CD4053_CTL1); // un-mute in ENGAGED state
+    hw_x4053_ctl1_low(); // un-mute in ENGAGED state
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -373,14 +401,22 @@ static uint8_t hw_is_sanity_check_failed(void) {
     return (0U == hw_output_pins_intact((1U << LED_PIN) | (1U << RELAY_SET_PIN) | (1U << RELAY_RESET_PIN)));
 }
 
+// constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
+// see the comment below hw_output_pins_intact() for why. No polarity
+// indirection needed here (the relay coils are not an x4053 control input).
+static void hw_relay_reset_pin_set_high(void) { LATA |=  (uint8_t)(1U << RELAY_RESET_PIN); }
+static void hw_relay_reset_pin_set_low(void)  { LATA &= (uint8_t)~(1U << RELAY_RESET_PIN); }
+static void hw_relay_set_pin_set_high(void)   { LATA |=  (uint8_t)(1U << RELAY_SET_PIN); }
+static void hw_relay_set_pin_set_low(void)    { LATA &= (uint8_t)~(1U << RELAY_SET_PIN); }
+
 // force both coils low
 // - it's not strictly necessary to set both low; but we do this as part of
 //   the project's overall defense-in-depth/belt-and-suspenders paradigm
 // - the intent is to prevent accidentally leaving the relay coil active too
 //   long (e.g. programmer mistake)
 static void set_relay_coils_low(void) {
-    hw_pin_set_low(RELAY_RESET_PIN);
-    hw_pin_set_low(RELAY_SET_PIN);
+    hw_relay_reset_pin_set_low();
+    hw_relay_set_pin_set_low();
 }
 
 // wrap this into a function to save firmware space
@@ -394,8 +430,8 @@ static void hw_set_bypass_state(void) {
 
     hw_led_pin_set_low(); // dark status LED
 
-    hw_pin_set_high(RELAY_RESET_PIN); // pulse reset coil
-    hw_tq2_pulse_delay();             // busy sleep for coil pulse time
+    hw_relay_reset_pin_set_high(); // pulse reset coil
+    hw_tq2_pulse_delay();          // busy sleep for coil pulse time
 
     set_relay_coils_low(); // done pulsing, force both coils low
 }
@@ -405,8 +441,8 @@ static void hw_set_engaged_state(void) {
 
     hw_led_pin_set_high(); // light status LED
 
-    hw_pin_set_high(RELAY_SET_PIN); // pulse set coil
-    hw_tq2_pulse_delay();           // busy sleep for coil pulse time
+    hw_relay_set_pin_set_high(); // pulse set coil
+    hw_tq2_pulse_delay();        // busy sleep for coil pulse time
 
     set_relay_coils_low(); // done pulsing, force both coils low
 }
