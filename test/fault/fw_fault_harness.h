@@ -29,8 +29,16 @@ typedef enum {
     FWI_PULLUP_GLOBAL_OFF,    // OPTION_REG nWPUEN set (global pull-up disable)
     FWI_LED_PIN_TO_INPUT,     // TRISA RA0 (LED) flipped from output to input
     FWI_CD4053_PIN_TO_INPUT,  // TRISA RA1 (CD4053) flipped from output to input
-    FWI_RA2_PIN_TO_INPUT      // TRISA RA2 flipped from output to input (load-bearing
+    FWI_RA2_PIN_TO_INPUT,     // TRISA RA2 flipped from output to input (load-bearing
                               // for cd4053-mute / tq2-relay; harmless for cd4053-simple)
+    // Critical configuration SFRs: a bit-flip in the clock select, watchdog
+    // period, or the 1ms tick timer must also force a reset. These four gate
+    // checks (main()'s IRCF / WDTPS / PR2 / T2CON comparisons) are variant-
+    // independent and MUST trip regardless of output scheme.
+    FWI_OSCCON_IRCF_SKEW,     // OSCCON IRCF flipped off the 16 MHz select (clock corrupted)
+    FWI_WDTPS_SKEW,           // WDTCON WDTPS flipped off the ~256 ms watchdog period
+    FWI_PR2_SKEW,             // TMR2 period register PR2 flipped off the 1 ms tick reload
+    FWI_T2CON_SKEW            // T2CON flipped off the configured prescale/enable value
 } fw_inject_t;
 
 // Run the real firmware from a clean power-on, let it complete exactly ONE clean

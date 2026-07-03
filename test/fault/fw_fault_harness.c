@@ -145,6 +145,13 @@ static void apply_injection(int inj) {
         case FWI_LED_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 0);               break;
         case FWI_CD4053_PIN_TO_INPUT:  TRISA |= (uint8_t)(1u << 1);               break;
         case FWI_RA2_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 2);               break;
+        // Single-bit SEU flips of the critical config SFRs. init() leaves each at
+        // its valid value (IRCF=0x07, WDTPS=0x08, PR2=249, T2CON=0x07); flipping
+        // one bit skews it off that value so main()'s equality gate must fire.
+        case FWI_OSCCON_IRCF_SKEW:     OSCCONbits.IRCF  ^= 1u;                    break;
+        case FWI_WDTPS_SKEW:           WDTCONbits.WDTPS ^= 1u;                    break;
+        case FWI_PR2_SKEW:             PR2   ^= (uint8_t)0x01u;                   break;
+        case FWI_T2CON_SKEW:           T2CON ^= (uint8_t)0x08u;                   break;
         case FWI_NONE:
         default:
             break;

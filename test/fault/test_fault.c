@@ -134,6 +134,15 @@ static void test_fault_injection(void) {
 #else
     expect_reset(FWI_RA2_PIN_TO_INPUT, "TRISA RA2 (CTL2/SET) flipped to input");
 #endif
+
+    // Critical configuration SFRs (variant-independent): an SEU that skews the
+    // clock select, watchdog period, or the 1 ms tick timer off its configured
+    // value must force a reset. These four gate checks were previously exercised
+    // by neither fault injection nor mutation.
+    expect_reset(FWI_OSCCON_IRCF_SKEW, "OSCCON IRCF skewed off the 16 MHz select");
+    expect_reset(FWI_WDTPS_SKEW,       "WDTCON WDTPS skewed off the ~256 ms period");
+    expect_reset(FWI_PR2_SKEW,         "PR2 skewed off the 1 ms tick reload");
+    expect_reset(FWI_T2CON_SKEW,       "T2CON skewed off the configured prescale/enable");
 }
 
 //////////////////////////////////////////////////////////////////////////////
