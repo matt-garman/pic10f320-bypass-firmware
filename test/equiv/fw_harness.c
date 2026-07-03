@@ -86,9 +86,14 @@ unsigned fw_actuation_ms(int i)   { return (i >= 0 && i < g_act_count) ? g_act_m
 // test leaves on the host: a mis-routed / stuck control pin on the NON-blocking
 // cd4053-simple variant (which has no __delay_ms for the actuation-snapshot path
 // to catch) -- previously verified only on the simulated core. The equivalence run
-// fills this too but ignores it; it is bounded so a long equiv stimulus cannot
-// overflow it (the excess ticks are simply not recorded).
-#define FW_TICK_TRACE_MAX 256
+// fills this too (and compares the per-tick internal state below). The buffer is
+// sized to span the equivalence test's longest stimulus (test/equiv/test_equiv.c
+// EQUIV_RANDOM_MAXLEN, currently 1200), so both the settled-LATA and the internal-
+// state captures cover EVERY tick rather than a truncated prefix. If a still-longer
+// stimulus is ever run the excess ticks are simply not recorded (graceful
+// degradation); test_equiv's capacity self-check (via fw_tick_state_count) turns
+// that into a loud failure rather than a silent LED-only fall-back.
+#define FW_TICK_TRACE_MAX 1200
 static uint8_t g_tick_lata[FW_TICK_TRACE_MAX];
 static int     g_tick_lata_n; // number of settled per-tick LATA samples recorded
 

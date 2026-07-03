@@ -38,10 +38,7 @@ extern void fw_run(const uint8_t *fsw, int n, uint8_t *trace);
 extern uint8_t fw_tick_ps(int i);
 extern uint8_t fw_tick_es(int i);
 extern uint8_t fw_tick_dc(int i);
-
-// Internal-state capture window in fw_harness.c (FW_TICK_TRACE_MAX). Ticks
-// beyond this have no captured state; the state comparison is gated to it.
-#define FW_STATE_CAPTURE_MAX 256
+extern int fw_tick_state_count(void); // # ticks of internal state the harness captured for the last run
 
 #ifndef EQUIV_EXHAUSTIVE_LEN
 #define EQUIV_EXHAUSTIVE_LEN 18   // 2^18 = 262144 sequences
@@ -154,6 +151,12 @@ static int compare_one(const uint8_t *fsw, int n) {
     static uint8_t   md_trace[EQUIV_RANDOM_MAXLEN];
     static fw_state_t md_state[EQUIV_RANDOM_MAXLEN];
     fw_run(fsw, n, fw_trace);
+    // Ticks for which the harness actually captured internal state (== min(n,
+    // FW_TICK_TRACE_MAX)). Gating on the harness's own count -- rather than a
+    // second hardcoded window -- means the internal-state comparison automatically
+    // spans as far as the harness records, with no constant to keep in sync. The
+    // capacity self-check in main() guarantees this covers the full stimulus.
+    int const state_n = fw_tick_state_count();
     model_run(fsw, n, md_trace, md_state);
     g_compared++;
     for (int i = 0; i < n; ++i) {
@@ -168,7 +171,7 @@ static int compare_one(const uint8_t *fsw, int n) {
             fprintf(stderr, "\n");
             return 1;
         }
-        if (i < FW_STATE_CAPTURE_MAX &&
+        if (i < state_n &&
             (fw_tick_ps(i) != md_state[i].program_state ||
              fw_tick_es(i) != md_state[i].effect_state  ||
              fw_tick_dc(i) != md_state[i].debounce_counter)) {
@@ -225,6 +228,30 @@ static void run_random(void) {
 int main(void) {
     printf("firmware<->model equivalence (PRESSED_THRESH=%u, RELEASE_THRESH=%u):\n",
            (unsigned)PRESSED_THRESH, (unsigned)RELEASE_THRESH);
+
+    // Capacity self-check: the harness captures per-tick internal state only up to
+    // its buffer size (FW_TICK_TRACE_MAX). If that is smaller than the longest
+    // stimulus we run, ticks beyond it would silently fall back to LED-only
+    // comparison -- exactly the gap this internal-state trace closes. Drive one
+    // full-horizon stimulus and confirm the harness recorded state for every tick;
+    // fail loudly (not silently) if the buffer is too small.
+    {
+        static uint8_t probe[EQUIV_RANDOM_MAXLEN];
+        static uint8_t probe_trace[EQUIV_RANDOM_MAXLEN];
+        memset(probe, 0, sizeof probe); // all-released: valid stimulus, no fault path
+        fw_run(probe, EQUIV_RANDOM_MAXLEN, probe_trace);
+        if (fw_tick_state_count() < EQUIV_RANDOM_MAXLEN) {
+            fprintf(stderr,
+                "FAIL: harness internal-state capture (%d ticks) < equivalence horizon "
+                "(%d); long sequences would compare LED only. Raise FW_TICK_TRACE_MAX "
+                "in test/equiv/fw_harness.c to >= EQUIV_RANDOM_MAXLEN.\n",
+                fw_tick_state_count(), EQUIV_RANDOM_MAXLEN);
+            return 1;
+        }
+        printf("  internal-state capture spans the full %d-tick horizon\n",
+               EQUIV_RANDOM_MAXLEN);
+    }
+
     run_exhaustive();
     if (g_failures == 0) { run_random(); }
     printf("equivalence: %ld sequences compared, %ld divergence(s)\n",
