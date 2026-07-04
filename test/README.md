@@ -49,6 +49,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
 | **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED, so the direct-drive (TMUX4053) variants' inverted control pins are pinned too (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
+| **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* recovers from an SEU/EMI corruption of **every** gate-guarded SFR (IRCF/WDTPS/PR2/T2CON/ANSELA + the pull-up SFRs) and `ctx_` SRAM field via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The silicon-level companion to `test-fault`. | libgpsim |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
 | Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
@@ -56,7 +57,8 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 `make test` runs all of the above in order **for the selected variant**;
 `make test-variants` repeats the whole suite for all five. `make test-formal`
 runs just the three formal engines. Standalone (not in `make test`):
-`make test-mutation` (below), `make test-soak` (a long-run libgpsim soak), and
+`make test-mutation` (below), `make test-soak` (a long-run libgpsim soak),
+`make test-fault-gpsim` (silicon-level fault injection on the real HEX), and
 `make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
 
 ## The equivalence test (`equiv/`)
@@ -158,6 +160,19 @@ real-time timer; if the firmware enters that spin, a `SIGALRM` handler
 reset-fired signal (robust at any optimisation level, since the firmware's only
 spin point is that function). This layer also drives the firmware's normal
 toggle lines, so it backs the `coverage-check-fw` gate.
+
+On the host, that reset is *inferred* from the spin (the mock has no real
+watchdog). `make test-fault-gpsim` (`pic/test_fault_pic.cc`, standalone, needs
+`gpsim-dev` + `libglib2.0-dev`) closes that gap on a simulated core: it injects
+the same corruption into every gate-guarded SFR (`OSCCON.IRCF`, `WDTCON.WDTPS`,
+`PR2`, `T2CON`, `ANSELA`, `WPUA`, `OPTION_REG.nWPUEN`) and `ctx_` SRAM field of
+the **real built HEX** and asserts the firmware recovers via **exactly one**
+watchdog reset — real reset-vectoring through `0x000`, with a no-injection
+control asserting none. "Exactly one" (not "≥ 1") also catches a reset-*loop*.
+It reuses the soak's non-halting notify-break-at-`0x000` machinery and inverts
+the verdict (soak: a reset is a failure; here: exactly one reset is the pass). It
+proves the reset *happens*, not its *timing* — WDT timing stays bench-only (see
+*Known gaps*).
 
 ## gpsim functional scenarios
 

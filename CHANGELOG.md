@@ -24,6 +24,11 @@ file is the human-readable summary of *what changed*.
   invariant (`OSCCON.IRCF`, `WDTCON.WDTPS`, `PR2`, `T2CON`, `ANSELA`); each
   guard is now independently proven to force a reset and to be killed if
   weakened.
+- `make test-fault-gpsim` (`test/pic/test_fault_pic.cc`): silicon-level
+  fault injection on the real built HEX in libgpsim — corrupts every
+  gate-guarded SFR and `ctx_` SRAM field and asserts recovery via exactly one
+  real watchdog reset (real reset-vectoring through `0x000`; a no-injection
+  control asserts none). Closes the last parent/child validation-parity gap.
 - Firmware↔model equivalence test compares internal state (`program_state`,
   `effect_state`, `debounce_counter`) against the reference model across the
   full stimulus horizon (previously LED-only past tick 256), with a capacity

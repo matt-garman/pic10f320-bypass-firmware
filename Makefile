@@ -199,7 +199,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
-        test-cbmc test-equiv test-actuation test-soak \
+        test-cbmc test-equiv test-actuation test-soak test-fault-gpsim \
         test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
@@ -601,6 +601,62 @@ test-soak: all
 	$(PIC_SOAK_COMPILE); \
 	./$(PIC_SOAK_BIN)
 
+# --- silicon-level fault injection (libgpsim) --------------------------------
+# The on-simulated-core companion to the host fault harness (test/fault/): drive
+# the real built HEX in libgpsim, corrupt a gate-guarded SFR/SRAM location at
+# runtime, and assert the firmware recovers via EXACTLY ONE watchdog reset (a
+# no-injection control asserts zero). Mirrors test-soak's libgpsim machinery and
+# inverts the verdict (soak: a reset is a FAILURE; here: exactly one reset PASSES).
+# STANDALONE and NOT part of `make test`: needs gpsim-dev + libglib2.0-dev (which
+# CI may lack); skips cleanly when the toolchain/headers/HEX are absent. The gate
+# is shared by every output shell, so this is variant-agnostic; PIC_VARIANT only
+# selects which HEX is loaded. See test/pic/test_fault_pic.cc.
+PIC_FAULT_SRC = test/pic/test_fault_pic.cc
+PIC_FAULT_BIN = $(BUILD_DIR)/test_fault_pic
+# _ctx_'s data address from the XC8 .sym, passed as -DCTX_ADDR so the ctx_ SRAM
+# cases self-adjust per variant. Expanded in the recipe (AFTER `all` builds the
+# .sym); empty when the .sym is absent, so the ctx_ cases compile out and report
+# skipped rather than failing.
+PIC_FAULT_CTX_DEF = $(shell a=$$(awk '$$1=="_ctx_"{print $$2; exit}' $(HEX:.hex=.sym) 2>/dev/null); [ -n "$$a" ] && echo -DCTX_ADDR=0x$$a)
+PIC_FAULT_COMPILE = $(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
+		-isystem $(PIC_SOAK_GPSIM_INC) \
+		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
+		-DF_CPU_HZ=$(PIC_XTAL) $(PIC_FAULT_CTX_DEF) \
+		$(PIC_FAULT_SRC) -o $(PIC_FAULT_BIN) -lgpsim
+
+# Build-only hook (parity with $(PIC_SOAK_BIN)); the phony run rule recompiles so
+# a PIC_VARIANT override is always applied.
+$(PIC_FAULT_BIN): $(PIC_FAULT_SRC)
+	$(PIC_FAULT_COMPILE)
+
+.PHONY: test-fault-gpsim
+test-fault-gpsim: all
+	@if ! command -v $(PIC_SOAK_CXX) >/dev/null 2>&1; then \
+		echo "no C++ compiler ($(PIC_SOAK_CXX)); skipping gpsim fault-inject"; exit 0; \
+	fi; \
+	if [ ! -f "$(PIC_SOAK_GPSIM_INC)/sim_context.h" ]; then \
+		echo "gpsim-dev headers not at $(PIC_SOAK_GPSIM_INC); skipping gpsim fault-inject (install gpsim-dev)"; exit 0; \
+	fi; \
+	if ! pkg-config --exists glib-2.0 2>/dev/null; then \
+		echo "libglib2.0-dev not found; skipping gpsim fault-inject (install libglib2.0-dev)"; exit 0; \
+	fi; \
+	if [ ! -f "$(HEX)" ]; then \
+		echo "no $(HEX) (XC8 absent?); skipping gpsim fault-inject"; exit 0; \
+	fi; \
+	s="$(HEX:.hex=.s)"; \
+	alloc=`awk 'prev=="_ctx_:"{print $$2; exit} {prev=$$1}' "$$s" 2>/dev/null`; \
+	if [ "$$alloc" != "3" ]; then \
+		echo "FAIL: _ctx_ allocates $${alloc:-?} bytes in $$s -- expected 3 (packed 1-byte enums)."; \
+		echo "      test_fault_pic.cc injects at ctx_+0/+1/+2 (program_state/effect_state/"; \
+		echo "      debounce_counter), assuming XC8 packs each enum to 1 byte; fix the offsets"; \
+		echo "      if that changed. (Checked from the .s: XC8's clang sizes enums as int, so"; \
+		echo "      it cannot be a static_assert.)"; \
+		exit 1; \
+	fi; \
+	echo "--- gpsim fault-inject: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) ---"; \
+	$(PIC_FAULT_COMPILE); \
+	./$(PIC_FAULT_BIN)
+
 # --- mutation testing --------------------------------------------------------
 # Inject deliberate faults into the firmware and the model, and confirm the suite
 # detects each one. NOT part of `make test` (it rebuilds per mutant).
@@ -703,6 +759,8 @@ help:
 	@echo "  test-fault-variants  run test-fault across all five output variants"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
+	@echo "  test-fault-gpsim  inject SFR/SRAM faults on the real HEX in gpsim; assert exactly"
+	@echo "                  one WDT-reset recovery per fault (standalone; needs gpsim-dev)"
 	@echo "  test-mutation   inject firmware/model faults, verify the suite kills them"
 	@echo "Analysis:"
 	@echo "  analyze         cppcheck bug-finding + MISRA-C:2012 (static analysis)"
