@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Shared single-step bridge for the host unit tests, the CBMC/symbolic proofs,
 // and the firmware<->model equivalence test.
 //

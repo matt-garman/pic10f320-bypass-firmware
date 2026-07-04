@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Exhaustive small-model state-space verification for the bypass
 // debounce/bypass algorithm.
 //

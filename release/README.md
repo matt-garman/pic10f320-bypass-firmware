@@ -17,8 +17,9 @@ validation suite — backs these binaries, through two mechanisms:
    source commit, the pinned toolchain versions, the per-image flash usage /
    CONFIG word, and the validation evidence: `make test-variants` (the full
    per-variant gate — static analysis + the reference-model host/formal suite +
-   the firmware↔model equivalence trace + the fault-injection harness +
-   CONFIG-word + gpsim functional + coverage), `make test-mutation` (inject
+   the firmware↔model equivalence trace + the per-variant actuation-sequence
+   check + the fault-injection harness + CONFIG-word + gpsim functional +
+   coverage), `make test-mutation` (inject
    firmware/model faults and confirm the suite kills them), and a **24-hour
    libgpsim soak of every output variant** — 24 h of *simulated* MCU operation
    per variant (gpsim runs the core faster than real time, so the wall-clock

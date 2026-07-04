@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Long-duration soak test for the PIC10F320 firmware. It links libgpsim, drives
 // the real built HEX, and verifies two properties at scale:
 //

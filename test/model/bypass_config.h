@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Reference-model debounce thresholds (host-only; not compiled into firmware).
 //
 // These MUST match the firmware's values in ../../bypass_mcu_pic10f320.c. There

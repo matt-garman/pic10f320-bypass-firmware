@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Firmware<->model equivalence test.
 //
 // Proves that the REAL PIC10F320 firmware (run on the host via fw_harness.c)

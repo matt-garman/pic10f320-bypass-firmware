@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Symbolic / exhaustive single-step property check for the debounce step()
 // function.
 //

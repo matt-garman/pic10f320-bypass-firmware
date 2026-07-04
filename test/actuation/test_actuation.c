@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Firmware actuation-sequence test.
 //
 // WHY THIS EXISTS

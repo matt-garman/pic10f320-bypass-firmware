@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Host-compiled PIC10F320 CONFIG-word decoder / verifier.
 //
 // WHY THIS EXISTS

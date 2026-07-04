@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // CBMC formal verification of the vendored reference debounce core
 // (test/model/bypass_pure.c).
 //

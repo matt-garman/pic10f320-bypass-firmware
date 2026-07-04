@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Host-compiled unit / property / fuzz tests for the bypass debounce state
 // machine, run against the VENDORED REFERENCE MODEL (test/model/bypass_pure.c).
 //

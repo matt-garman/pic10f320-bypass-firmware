@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Fault-injection harness: runs the REAL PIC10F320 firmware on the host and
 // exercises its DEFENSIVE / fault-detection code -- the per-tick SEU/EMI sanity
 // gate in main(), the footswitch pull-up check, the output-pin-direction check,

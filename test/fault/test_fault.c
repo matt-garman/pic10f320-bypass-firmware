@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Firmware fault-injection + defensive-path test driver.
 //
 // Proves the PIC10F320 firmware's fault-detection layer -- which the

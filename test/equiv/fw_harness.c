@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Firmware harness for the equivalence test: runs the REAL PIC10F320 firmware
 // on the host and captures its status-LED (RA0) output trace, one sample per
 // tick. RA0 is the variant-independent witness of effect state -- it is high iff

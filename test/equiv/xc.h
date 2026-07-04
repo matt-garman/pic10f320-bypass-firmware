@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Mock <xc.h> for the firmware<->model equivalence test (make test-equiv).
 //
 // This lets the REAL firmware (bypass_mcu_pic10f320.c) be compiled and run on

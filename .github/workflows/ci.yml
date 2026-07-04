@@ -53,7 +53,7 @@ jobs:
   # -------------------------------------------------------------------------
   # Gating job: the full validation suite across all five output variants.
   # This is the "build passing" badge. `make test-variants` runs `make test`
-  # (analyze + host/formal + equiv + fault + CONFIG word + gpsim + coverage)
+  # (analyze + host/formal + equiv + actuation + fault + CONFIG word + gpsim + coverage)
   # once per variant.
   #
   # CRITICAL: the `make test` sub-targets SKIP CLEANLY when a tool/header is

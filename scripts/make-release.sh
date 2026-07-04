@@ -30,7 +30,7 @@
 #   1. Clean-build every output-variant image (cd4053-simple, tmux4053-simple,
 #      cd4053-mute, tmux4053-mute, tq2-relay).
 #   2. Run `make test-variants` (the full per-variant gate: analyze + host/formal
-#      + equivalence + fault + CONFIG word + gpsim + coverage) and `make
+#      + equivalence + actuation + fault + CONFIG word + gpsim + coverage) and `make
 #      test-mutation` (the mutation suite). These are the full pre-hardware gates.
 #   3. Run ALL soak combos (one libgpsim soak per variant) IN PARALLEL for the
 #      full duration, collecting a pass/fail verdict and evidence from each.
@@ -267,7 +267,7 @@ ok "built ${#IMAGES[@]} images."
 # 2. FULL PRE-HARDWARE GATES
 # ============================================================================
 section "2. validation: make test-variants + make test-mutation"
-log "running make test-variants (full per-variant gate: analyze + host/formal + equiv + fault + gpsim + coverage)..."
+log "running make test-variants (full per-variant gate: analyze + host/formal + equiv + actuation + fault + CONFIG word + gpsim + coverage)..."
 make test-variants PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
 	>"$EVID/test-variants.log" 2>&1 || { tail -40 "$EVID/test-variants.log" >&2; die "make test-variants FAILED."; }
 ok "test-variants passed."

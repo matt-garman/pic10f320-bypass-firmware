@@ -200,7 +200,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak \
-        test-fault test-mutation coverage coverage-check coverage-check-fw \
+        test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
 # Build + enforce the flash-word budget. XC8 scatters intermediates
@@ -631,7 +631,7 @@ test-variants:
 
 clean:
 	rm -rf $(BUILD_DIR) $(COVERAGE_DIR)
-	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list* *.gcov
+	rm -f *.dump *.ctu-info cppcheck-addon-ctu-file-list* *.gcov gpsim.log
 	find . -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
 # ============================================================================
@@ -700,6 +700,7 @@ help:
 	@echo "  test-actuation  verify per-variant control pins (RA1/RA2): settled pattern every"
 	@echo "                  tick (all variants), plus mute/relay mid-actuation transient + width"
 	@echo "  test-fault      corrupt state/SFRs, verify the WDT-reset defensive path"
+	@echo "  test-fault-variants  run test-fault across all five output variants"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
 	@echo "  test-mutation   inject firmware/model faults, verify the suite kills them"

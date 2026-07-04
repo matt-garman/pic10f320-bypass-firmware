@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Matthew Garman
+
 // Host harness API for exercising the REAL PIC10F320 firmware's defensive /
 // fault-detection paths -- the SEU/EMI sanity gate, the pull-up and output-pin
 // checks, and hw_force_wdt_reset() -- which the firmware<->model equivalence
