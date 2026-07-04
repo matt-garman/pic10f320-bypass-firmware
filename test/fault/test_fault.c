@@ -143,6 +143,7 @@ static void test_fault_injection(void) {
     expect_reset(FWI_WDTPS_SKEW,       "WDTCON WDTPS skewed off the ~256 ms period");
     expect_reset(FWI_PR2_SKEW,         "PR2 skewed off the 1 ms tick reload");
     expect_reset(FWI_T2CON_SKEW,       "T2CON skewed off the configured prescale/enable");
+    expect_reset(FWI_ANSELA_SKEW,      "ANSELA RA0 re-selected analog (output not digital)");
 }
 
 //////////////////////////////////////////////////////////////////////////////

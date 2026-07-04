@@ -45,13 +45,15 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault-variants	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
 "bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault-variants	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
 "bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault-variants	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
-# The four config-SFR guards below are dropped from the sanity gate's OR-chain
-# (the `(EXPR) ||` term is deleted). Valid stimulus never trips them, so test-equiv/
-# test-gpsim stay green; only test-fault's new IRCF/WDTPS/PR2/T2CON injections kill them.
-"bypass_mcu_pic10f320.c	s@(HFINTOSC_16MHZ_IRCF != OSCCONbits.IRCF) ||@@	test-fault-variants	FW clock-select (OSCCON IRCF) SEU guard removed (corrupt clock never forces reset)"
-"bypass_mcu_pic10f320.c	s@(WDT_WDTPS_256MS != WDTCONbits.WDTPS) ||@@	test-fault-variants	FW watchdog-period (WDTCON WDTPS) SEU guard removed (corrupt WDT period never forces reset)"
-"bypass_mcu_pic10f320.c	s@(TMR2_PR2_PERIOD != PR2) ||@@	test-fault-variants	FW tick-period (PR2) SEU guard removed (corrupt 1 ms reload never forces reset)"
-"bypass_mcu_pic10f320.c	s@(TMR2_PRESCALE_VALUE != T2CON) ||@@	test-fault-variants	FW tick-control (T2CON) SEU guard removed (corrupt prescale/enable never forces reset)"
+# The five config-SFR guards below live in hw_critical_sfrs_intact(); each mutant
+# replaces one comparison with a constant true (1U), so that SFR is no longer
+# checked. Valid stimulus never trips them, so test-equiv/test-gpsim stay green;
+# only test-fault's IRCF/WDTPS/PR2/T2CON/ANSELA injections kill them.
+"bypass_mcu_pic10f320.c	s@(HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF)@1U@	test-fault-variants	FW clock-select (OSCCON IRCF) SEU guard defeated (corrupt clock never forces reset)"
+"bypass_mcu_pic10f320.c	s@(WDT_WDTPS_256MS == WDTCONbits.WDTPS)@1U@	test-fault-variants	FW watchdog-period (WDTCON WDTPS) SEU guard defeated (corrupt WDT period never forces reset)"
+"bypass_mcu_pic10f320.c	s@(TMR2_PR2_PERIOD == PR2)@1U@	test-fault-variants	FW tick-period (PR2) SEU guard defeated (corrupt 1 ms reload never forces reset)"
+"bypass_mcu_pic10f320.c	s@(TMR2_PRESCALE_VALUE == T2CON)@1U@	test-fault-variants	FW tick-control (T2CON) SEU guard defeated (corrupt prescale/enable never forces reset)"
+"bypass_mcu_pic10f320.c	s@(0U == (uint8_t)(ANSELA & BYPASS_OUTPUT_DDR_MASK))@1U@	test-fault-variants	FW digital-port (ANSELA) SEU guard defeated (output pin re-selected analog never forces reset)"
 # --- firmware: GPIO / footswitch wiring -------------------------------------------
 # LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
 # too; they are listed under gpsim as the register-level oracle. The CD4053 control

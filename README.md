@@ -16,6 +16,14 @@ section). It responds to a footswitch, debounces it, toggles effect
 bypass/engage, and drives a status LED.
 
 
+## Design Documentation
+
+Except for the necessary structural differences noted here, the overall design
+and hardware implementation of the PIC10F320 is the same as it is for the
+parent PIC10F322.  See the parent's
+[DESIGN_DOCUMENTATION.adoc](https://github.com/matt-garman/mcu-bypass-firmware/blob/main/DESIGN_DOCUMENTATION.adoc) for details.
+
+
 ## Relationship to the parent project
 
 This is intentionally a separate child project of

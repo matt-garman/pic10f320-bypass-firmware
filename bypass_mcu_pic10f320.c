@@ -79,7 +79,8 @@
 // projects.
 //
 // Macro value is the output-bit set, interpreted by
-// hw_configure_output_pins(); on PIC: TRISA bit 0 = output.
+// the inline TRISA/LATA setup in init(); on PIC: TRISA bit 0 = output
+// (hw_configure_output_pins() in the parent project)
 //
 // All output schemes use RA0..RA2:
 //    relay = LED(RA0), RESET(RA1), SET(RA2)
@@ -149,10 +150,10 @@
 // MCU-neutral threshold invariants -- identical across all shells, so defined
 // once here.  Evaluated at file scope (zero runtime cost); a violation fails the
 // build of every shell that includes this header.
-static_assert(RELEASE_THRESH < DEBOUNCE_COUNTER_MAX, "RELEASE_THRESH >= UINT8_MAX");
+static_assert(RELEASE_THRESH < DEBOUNCE_COUNTER_MAX, "RELEASE_THRESH >= DEBOUNCE_COUNTER_MAX (i.e. UINT8_MAX)");
 static_assert(RELEASE_THRESH > 0U,                   "RELEASE_THRESH <= 0");
 static_assert(RELEASE_THRESH > PRESSED_THRESH,       "RELEASE_THRESH <= PRESSED_THRESH");
-static_assert(PRESSED_THRESH < DEBOUNCE_COUNTER_MAX, "PRESSED_THRESH >= UINT8_MAX");
+static_assert(PRESSED_THRESH < DEBOUNCE_COUNTER_MAX, "PRESSED_THRESH >= DEBOUNCE_COUNTER_MAX (i.e. UINT8_MAX)");
 static_assert(PRESSED_THRESH > 0U,                   "PRESSED_THRESH <= 0");
 
 // pin-map sanity: the PIC pin map hard-codes PORTA bit positions as literals
@@ -174,7 +175,8 @@ static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCC
 // the WDT's worst-case (shortest) period, or a healthy main loop could trip the
 // dog.  The per-variant pulse term is asserted next to the existing
 // "pulse < RELEASE_THRESH" check in each hw_is_sanity_check_failed().
-//   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=249 @ FOSC/4 = 4MHz).
+//   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=249 with the 1:16 prescaler on
+//                       FOSC/4=4MHz -> 250kHz, so 250 counts = 1ms).
 //   WDT_MIN_PERIOD_MS : ~256ms nominal (WDTPS=0x08 = 1:8192 on the ~31kHz
 //                       LFINTOSC), de-rated by the datasheet worst-case -37%
 //                       (param 31) to a ~160ms floor.
@@ -338,7 +340,7 @@ static void hw_x4053_ctl1_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL1); }
 static void hw_x4053_ctl2_high(void) { LATA &= (uint8_t)~(1U << CD4053_CTL2); }
 static void hw_x4053_ctl2_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
 #endif
- 
+
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
 //
@@ -485,13 +487,33 @@ static pin_state_t hw_read_footswitch(void) {
 //
 // The two volatile SFRs are read into locals first so the && combines two plain
 // (non-volatile) booleans: this keeps MISRA Rule 13.5 clean (no persistent side
-// effect on the right operand of &&), which the project does not deviate.
+// effect on the right operand of &&), a rule from which the project does not
+// deviate.
 static uint8_t hw_footswitch_pullup_intact(void) {
     uint8_t pin_latched = (uint8_t)(WPUA & (1U << FOOTSW_PIN));
     uint8_t wpu_global  = (uint8_t)OPTION_REGbits.nWPUEN; // 0 = enabled
     return (0U != pin_latched) && (0U == wpu_global);
 }
 
+
+// non-zero IFF the critical configuration SFRs still hold the values init() set:
+// the 16MHz clock select (OSCCON.IRCF), the ~256ms watchdog period
+// (WDTCON.WDTPS), the 1ms tick timer (PR2 + T2CON), and the all-digital
+// output-pin select (ANSELA bits for RA0..RA2 clear).  An SEU/EMI flip of any of
+// these silently breaks timing, or -- for ANSELA -- takes an output pin out of
+// digital service (dark LED / dead control pin) while its TRISA direction bit
+// still reads "output", which hw_is_sanity_check_failed() cannot see.
+//
+// As in hw_footswitch_pullup_intact() above, each volatile SFR is read into a
+// local first so the combining && operators have no persistent side effect on
+// their right operand (MISRA Rule 13.5); the project does not deviate 13.5.
+static uint8_t hw_critical_sfrs_intact(void) {
+    return (HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF) &&
+        (WDT_WDTPS_256MS == WDTCONbits.WDTPS) &&
+        (TMR2_PR2_PERIOD == PR2) &&
+        (TMR2_PRESCALE_VALUE == T2CON) &&
+        (0U == (uint8_t)(ANSELA & BYPASS_OUTPUT_DDR_MASK));
+}
 
 
 
@@ -557,7 +579,7 @@ static void init(void) {
     // ~256ms (WDTPS = 0b01000 = 1:8192 on the ~31kHz LFINTOSC), mirroring the
     // AVR shell's 250ms.  The LFINTOSC has ±25% tolerance (datasheet OS09)
     // and the WDT period is characterized at -37%/+69% (param 31), so
-    // worst-case it is still ~160ms -- comfortably > the ~14ms worst-case
+    // worst-case it is still ~160ms -- comfortably > the ~13ms worst-case
     // pet-to-pet window (1ms tick + 12ms relay coil pulse), unlike the prior
     // 32ms (~1.4x margin).
     WDTCONbits.WDTPS = WDT_WDTPS_256MS;
@@ -625,13 +647,13 @@ void main(void) {
         // main-loop liveness is proven by reaching CLRWDT() below.
         if ( (ctx_.program_state > RELEASE_DEBOUNCE_WAIT) ||
                 (ctx_.effect_state > ENGAGED) ||
+                (ctx_.debounce_counter > RELEASE_THRESH) ||
                 // assert footswitch pull-up still enabled
                 (0U == hw_footswitch_pullup_intact()) ||
-                (HFINTOSC_16MHZ_IRCF != OSCCONbits.IRCF) ||
-                (WDT_WDTPS_256MS != WDTCONbits.WDTPS) ||
-                (ctx_.debounce_counter > RELEASE_THRESH) ||
-                (TMR2_PR2_PERIOD != PR2) ||
-                (TMR2_PRESCALE_VALUE != T2CON) ||
+                // assert the critical config SFRs still hold their init() values
+                // (16MHz clock, ~256ms WDT period, 1ms tick timer, all-digital
+                // output pins) -- see hw_critical_sfrs_intact()
+                (0U == hw_critical_sfrs_intact()) ||
                 // config-specific runtime sanity checks
                 hw_is_sanity_check_failed()
            ) {

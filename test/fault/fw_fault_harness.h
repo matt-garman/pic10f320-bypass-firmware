@@ -38,7 +38,9 @@ typedef enum {
     FWI_OSCCON_IRCF_SKEW,     // OSCCON IRCF flipped off the 16 MHz select (clock corrupted)
     FWI_WDTPS_SKEW,           // WDTCON WDTPS flipped off the ~256 ms watchdog period
     FWI_PR2_SKEW,             // TMR2 period register PR2 flipped off the 1 ms tick reload
-    FWI_T2CON_SKEW            // T2CON flipped off the configured prescale/enable value
+    FWI_T2CON_SKEW,           // T2CON flipped off the configured prescale/enable value
+    FWI_ANSELA_SKEW           // ANSELA output-pin bit set: RA0 re-selected analog
+                              // (out of digital output service, TRISA direction unchanged)
 } fw_inject_t;
 
 // Run the real firmware from a clean power-on, let it complete exactly ONE clean
