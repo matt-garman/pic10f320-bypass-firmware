@@ -52,7 +52,7 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@(HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF)@1U@	test-fault-variants	FW clock-select (OSCCON IRCF) SEU guard defeated (corrupt clock never forces reset)"
 "bypass_mcu_pic10f320.c	s@(WDT_WDTPS_256MS == WDTCONbits.WDTPS)@1U@	test-fault-variants	FW watchdog-period (WDTCON WDTPS) SEU guard defeated (corrupt WDT period never forces reset)"
 "bypass_mcu_pic10f320.c	s@(TMR2_PR2_PERIOD == PR2)@1U@	test-fault-variants	FW tick-period (PR2) SEU guard defeated (corrupt 1 ms reload never forces reset)"
-"bypass_mcu_pic10f320.c	s@(TMR2_PRESCALE_VALUE == T2CON)@1U@	test-fault-variants	FW tick-control (T2CON) SEU guard defeated (corrupt prescale/enable never forces reset)"
+"bypass_mcu_pic10f320.c	s@(TMR2_T2CON_CONFIG == T2CON)@1U@	test-fault-variants	FW tick-control (T2CON) SEU guard defeated (corrupt prescale/enable never forces reset)"
 "bypass_mcu_pic10f320.c	s@(0U == (uint8_t)(ANSELA & BYPASS_OUTPUT_DDR_MASK))@1U@	test-fault-variants	FW digital-port (ANSELA) SEU guard defeated (output pin re-selected analog never forces reset)"
 # --- firmware: GPIO / footswitch wiring -------------------------------------------
 # LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
