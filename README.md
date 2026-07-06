@@ -117,7 +117,11 @@ drive polarity (`BYPASS_X4053_DIRECT_DRIVE`), which is what turns three stages i
 five build variants.
 
 - **Derived from:** `mcu-bypass-firmware` @ commit
-  `7384215` (`73842153b3764c0c9e8771a40502d15edd3386c4`).
+  `bf6a6c1` (`bf6a6c15071bdc56bc96de740eec83e8a87cd78b`) — the same commit the
+  vendored reference model is pinned to (see `test/model/README.md`), and the one
+  that introduced the CD4053-vs-TMUX4053 control-pin polarity
+  (`bypass_output_x4053_polarity.h`) the five build variants rely on. (The earlier
+  `7384215` predates that polarity split and is no longer the baseline.)
 - **Correctness is inherited by derivation** from that core's host + formal
   verification; it is *not* independently re-proven in this repository.
 - This is a **frozen one-off**. It is *not* automatically kept in sync with

@@ -23,7 +23,9 @@ the real firmware is behaviorally identical to it (`make test-equiv`).
 
 ## Provenance & sync
 
-- Vendored from `mcu-bypass-firmware` @ commit `bf6a6c1`.
+- Vendored from `mcu-bypass-firmware` @ commit `bf6a6c1`
+  (`bf6a6c15071bdc56bc96de740eec83e8a87cd78b`) — the same commit the firmware is
+  derived from (see the top-level `README.md`).
 - This is a frozen copy. If the parent's pure core changes, re-copy these three
   files. The equivalence test guards against the firmware and this model drifting
   apart; re-syncing keeps the model current with the parent's verified core.
