@@ -14,7 +14,8 @@ name: Release
 #      committed SHA256SUMS byte-for-byte -- i.e. proves the committed binaries
 #      really are what the tagged source compiles to (fails the release if not);
 #   3. re-runs `make test-variants` + `make test-mutation` + `make test-fault-gpsim`
-#      (per variant, silicon-level fault recovery) on the clean runner;
+#      (per variant, silicon-level fault recovery) + `make test-lockstep-gpsim`
+#      (per variant, firmware<->model ctx_ lock-step) on the clean runner;
 #   4. publishes a GitHub Release with the images, SHA256SUMS(.asc) and MANIFEST.
 #
 # The runner is pinned to ubuntu-24.04 so the toolchain matches TOOLCHAIN.adoc;
@@ -166,6 +167,18 @@ jobs:
               PIC_DFP="${XC8_DFP_ROOT}/xc8" | tee "$log"
             grep -q "FAULT-INJECT PASS" "$log" \
               || { echo "::error::test-fault-gpsim did not report PASS for $v (skipped or incomplete?)"; exit 1; }
+          done
+
+      - name: Re-run make test-lockstep-gpsim (firmware<->model ctx_ lock-step, per variant)
+        run: |
+          set -euo pipefail
+          for v in $(make -s print-PIC_VARIANTS_ALL); do
+            log="$(mktemp)"
+            make test-lockstep-gpsim PIC_VARIANT="$v" \
+              PIC_CC="${XC8_DIR}/bin/xc8-cc" \
+              PIC_DFP="${XC8_DFP_ROOT}/xc8" | tee "$log"
+            grep -q "LOCK-STEP PASS" "$log" \
+              || { echo "::error::test-lockstep-gpsim did not report PASS for $v (skipped or incomplete?)"; exit 1; }
           done
 
       # --- publish ----------------------------------------------------------

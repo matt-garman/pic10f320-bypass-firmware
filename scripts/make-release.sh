@@ -14,7 +14,7 @@
 #     1. PROVENANCE -- every released image carries a MANIFEST recording the git
 #        commit, the exact toolchain versions, the per-image flash usage / CONFIG
 #        word, and the validation evidence (test-variants + mutation +
-#        fault-gpsim + soak).
+#        fault-gpsim + lockstep-gpsim + soak).
 #     2. REPRODUCIBILITY -- the Intel-HEX images are byte-deterministic for a
 #        fixed toolchain (XC8's ihex output carries only code/config bytes, no
 #        timestamps/paths). SHA256SUMS pins those bytes; the tag-triggered CI
@@ -32,9 +32,10 @@
 #      cd4053-mute, tmux4053-mute, tq2-relay).
 #   2. Run `make test-variants` (the full per-variant gate: analyze + host/formal
 #      + equivalence + actuation + fault + CONFIG word + gpsim + coverage), `make
-#      test-mutation` (the mutation suite), and `make test-fault-gpsim` per variant
-#      (silicon-level SFR/SRAM fault-recovery on the real HEX -- standalone, so it
-#      is gated here explicitly). These are the full pre-hardware gates.
+#      test-mutation` (the mutation suite), and per variant `make test-fault-gpsim`
+#      (silicon-level SFR/SRAM fault-recovery on the real HEX) + `make
+#      test-lockstep-gpsim` (firmware<->model ctx_ lock-step on the real HEX) --
+#      both standalone, so gated here explicitly. These are the full pre-hardware gates.
 #   3. Run ALL soak combos (one libgpsim soak per variant) IN PARALLEL for the
 #      full duration, collecting a pass/fail verdict and evidence from each.
 #   4. Stage release/<VERSION>/ : the .hex images, SHA256SUMS, a provenance
@@ -269,7 +270,7 @@ ok "built ${#IMAGES[@]} images."
 # ============================================================================
 # 2. FULL PRE-HARDWARE GATES
 # ============================================================================
-section "2. validation: make test-variants + make test-mutation + test-fault-gpsim"
+section "2. validation: test-variants + test-mutation + test-fault-gpsim + test-lockstep-gpsim"
 log "running make test-variants (full per-variant gate: analyze + host/formal + equiv + actuation + fault + CONFIG word + gpsim + coverage)..."
 make test-variants PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
 	>"$EVID/test-variants.log" 2>&1 || { tail -40 "$EVID/test-variants.log" >&2; die "make test-variants FAILED."; }
@@ -293,6 +294,22 @@ for v in $VARIANTS; do
 	grep -q "FAULT-INJECT PASS" "$EVID/fault-gpsim-$v.log" \
 		|| { tail -40 "$EVID/fault-gpsim-$v.log" >&2; die "test-fault-gpsim did not report PASS for $v (skipped or incomplete?)."; }
 	ok "test-fault-gpsim $v: PASS"
+done
+
+# Silicon-level lock-step on the REAL built HEX: one gpsim run per variant that
+# drives stimulus into the compiled instruction stream and the reference model in
+# tandem, asserting the firmware's live ctx_ matches the model at EVERY loop
+# iteration (pins the XC8 codegen, not just the firmware C test-equiv runs on the
+# host). Standalone (NOT part of test-variants), so gate it explicitly here. Same
+# toolchain as fault-gpsim (already asserted present in section 0), and we REQUIRE
+# its "LOCK-STEP PASS" line so this gate can never go green on a silent skip.
+log "running make test-lockstep-gpsim per variant (firmware<->model lock-step on the real HEX)..."
+for v in $VARIANTS; do
+	make test-lockstep-gpsim PIC_VARIANT="$v" PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
+		>"$EVID/lockstep-gpsim-$v.log" 2>&1 || { tail -40 "$EVID/lockstep-gpsim-$v.log" >&2; die "make test-lockstep-gpsim FAILED for $v."; }
+	grep -q "LOCK-STEP PASS" "$EVID/lockstep-gpsim-$v.log" \
+		|| { tail -40 "$EVID/lockstep-gpsim-$v.log" >&2; die "test-lockstep-gpsim did not report PASS for $v (skipped or incomplete?)."; }
+	ok "test-lockstep-gpsim $v: PASS"
 done
 
 # ============================================================================
@@ -417,7 +434,7 @@ REL_BANNER=""
 	printf -- '- **Source commit:** `%s`\n' "$GIT_SHA"
 	[ "$GIT_DIRTY" -eq 1 ] && printf -- '- **WARNING:** built from a DIRTY tree (uncommitted changes not captured by the SHA).\n'
 	printf -- '- **Built:** %s by `%s` on `%s`\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${USER:-?}" "$(uname -srm)"
-	printf -- '- **Validation:** `make test-variants` + `make test-mutation` + per-variant `make test-fault-gpsim` (silicon-level fault-recovery on the real HEX) + a %s-h *simulated-time* parallel libgpsim soak of every variant (see evidence/).\n\n' "$hours"
+	printf -- '- **Validation:** `make test-variants` + `make test-mutation` + per-variant `make test-fault-gpsim` (silicon-level fault-recovery on the real HEX) + per-variant `make test-lockstep-gpsim` (firmware<->model ctx_ lock-step on the real HEX) + a %s-h *simulated-time* parallel libgpsim soak of every variant (see evidence/).\n\n' "$hours"
 
 	printf '## Toolchain\n\n'
 	printf -- '| tool | version |\n|---|---|\n'
@@ -480,7 +497,8 @@ ok "wrote MANIFEST.md"
 	printf 'Prebuilt, fully-validated PIC10F320 firmware images for %s.\n\n' "$VERSION"
 	printf 'Built from %s with the toolchain pinned in TOOLCHAIN.adoc.\n' "$GIT_SHORT"
 	printf 'Validation: make test-variants + make test-mutation + per-variant make test-fault-gpsim\n'
-	printf '(silicon-level fault-recovery on the real HEX) + a %s-h simulated-time parallel soak\n' "$hours"
+	printf '(silicon-level fault-recovery) + per-variant make test-lockstep-gpsim (firmware<->model\n'
+	printf 'ctx_ lock-step on the real HEX) + a %s-h simulated-time parallel soak\n' "$hours"
 	printf 'of every output variant (evidence under release/%s/evidence/).\n\n' "$VERSION"
 	printf 'Reproducibility is pinned by release/%s/SHA256SUMS and verified on a\n' "$VERSION"
 	printf 'clean runner by .github/workflows/release.yml when the tag is pushed.\n'
