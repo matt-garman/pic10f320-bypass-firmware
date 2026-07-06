@@ -59,12 +59,17 @@ MUTATIONS=(
 # killed only because test-fault injects ANSELA skews on RA1 and RA2 as well as RA0.
 "bypass_mcu_pic10f320.c	s@ANSELA & BYPASS_OUTPUT_DDR_MASK@ANSELA \& 0x01U@	test-fault-variants	FW ANSELA sanity mask narrowed to RA0 only (RA1/RA2 analog re-selection undetected)"
 # --- firmware: GPIO / footswitch wiring -------------------------------------------
-# LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
-# too; they are listed under gpsim as the register-level oracle. The CD4053 control
-# mis-route does NOT move RA0 (it is on RA1), so it is the one wiring fault the
-# RA0-only equivalence test cannot see -- now killed host-only by test-actuation's
-# settled-LATA check (it was gpsim-only before that check existed).
-"bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-gpsim	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
+# LED-invert and footswitch-polarity BOTH diverge on RA0, so they are targeted at
+# test-equiv (always available, host gcc) -- NOT test-gpsim, so that a gpsim-less
+# run cannot silently SKIP them (a skipped mutant is not a killed one, yet the
+# summary would still read "all evaluated mutants killed"). gpsim remains a
+# redundant oracle via the functional scenarios (footswitch_toggle.stc), just not
+# the mutation-kill target. This leaves the tick-cadence mutant below as the sole
+# genuinely gpsim-only kill -- matching the README's "one deliberate exception".
+# The CD4053 control mis-route does NOT move RA0 (it is on RA1), so it is the one
+# wiring fault the RA0-only equivalence test cannot see -- killed host-only by
+# test-actuation's settled-LATA check (it was gpsim-only before that check existed).
+"bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-equiv	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_x4053_ctl_low();@hw_x4053_ctl_high();@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (set_engaged drives the bypass level); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
 # --- firmware: analog-switch control-pin DRIVE POLARITY (CD4053 vs TMUX4053) -------
 # The tmux4053-* variants build the same driver source with the direct-drive
@@ -74,7 +79,7 @@ MUTATIONS=(
 # 0x2) while RA0/the LED stay correct -- invisible to equiv (RA0 only), killed by
 # test-actuation's per-tick settled-LATA check for the tmux variant.
 "bypass_mcu_pic10f320.c	s@static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }@static void hw_x4053_ctl_high(void) { LATA \&= (uint8_t)~(1U << CD4053_PIN); }@	PIC_VARIANT=tmux4053-simple test-actuation	FW TMUX4053 direct-drive polarity broken (ctl_high drives low like the CD4053 inverter); tmux bypass control pin settles wrong (RA1 low not high)"
-"bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-gpsim	FW footswitch read polarity inverted (toggles on release, not press)"
+"bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-equiv	FW footswitch read polarity inverted (toggles on release, not press)"
 # --- firmware: 1 ms tick CADENCE (the one mutant only gpsim can kill) ---------------
 # Removing the TMR2IF clear makes the flag latch set, so the `while (TMR2IF==0)` poll
 # never re-blocks and the main loop free-runs: the debounce crosses PRESSED_THRESH

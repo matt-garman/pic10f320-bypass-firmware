@@ -211,8 +211,9 @@ part of `make test` (it rebuilds per mutant). Currently 31 mutants (25 firmware 
 6 model), all killed.
 
 Almost every firmware mutant is killed by a **host** target (the LED-invert and
-footswitch-polarity mutants also diverge on RA0, so `test-equiv` kills them as well
-as `test-gpsim`), with gpsim a redundant second oracle. The **one deliberate
+footswitch-polarity mutants diverge on RA0, so they are targeted at `test-equiv`,
+which — unlike `test-gpsim` — is never skipped when gpsim is absent), with gpsim a
+redundant second oracle. The **one deliberate
 exception** is the **tick-cadence** mutant (the `TMR2IF` clear removed, so the 1 ms
 poll never re-blocks and the loop free-runs): tick *timing* is unobservable on the
 host by construction — the host harnesses force `TMR2IF=1` — so gpsim's mid-debounce
