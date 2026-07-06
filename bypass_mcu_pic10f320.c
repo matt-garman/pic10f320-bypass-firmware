@@ -504,12 +504,12 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 // still reads "output", which hw_is_sanity_check_failed() cannot see.
 //
 // A previous iteration of this function read each volatile SFR into a local
-// first so the combining && operators have no persistent side effect on their
-// right operand so as to not deviate from MISRA Rule 13.5.  However, using
-// locals eats into the space of the flash-constrained PIC10F320 part; and in
-// practice, usin the "&&" operator is not flagged as a MISRA violation.  In
-// case this function ever fails MISRA 13.5, we can re-introduce the local
-// variables (assuming there is flash space).
+// first so the combining "&&" operators have no persistent side effect on
+// their right operand so as to not deviate from MISRA Rule 13.5.  However,
+// using locals eats into the space of the flash-constrained PIC10F320 part;
+// and in practice, using the "&&" operator is not flagged as a MISRA
+// violation.  In case this function ever fails MISRA 13.5, we can
+// re-introduce the local variables (assuming there is flash space).
 static uint8_t hw_critical_sfrs_intact(void) {
     return (HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF) &&
         (WDT_WDTPS_256MS == WDTCONbits.WDTPS) &&
