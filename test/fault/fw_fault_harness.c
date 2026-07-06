@@ -155,7 +155,9 @@ static void apply_injection(int inj) {
         case FWI_WDTPS_SKEW:           WDTCONbits.WDTPS ^= 1u;                    break;
         case FWI_PR2_SKEW:             PR2   ^= (uint8_t)0x01u;                   break;
         case FWI_T2CON_SKEW:           T2CON ^= (uint8_t)0x08u;                   break;
-        case FWI_ANSELA_SKEW:          ANSELA |= (uint8_t)(1u << 0);              break;
+        case FWI_ANSELA_SKEW_RA0:      ANSELA |= (uint8_t)(1u << 0);              break;
+        case FWI_ANSELA_SKEW_RA1:      ANSELA |= (uint8_t)(1u << 1);              break;
+        case FWI_ANSELA_SKEW_RA2:      ANSELA |= (uint8_t)(1u << 2);              break;
         case FWI_NONE:
         default:
             break;

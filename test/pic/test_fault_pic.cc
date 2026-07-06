@@ -338,8 +338,15 @@ int main() {
                 "tick period 249->99: 1ms tick skewed");
     inject_case("T2CON",        T2CON_ADDR,  "t2con",  false, 0x01,
                 "T2CKPS 1:16->1:4, TMR2ON preserved: timer cfg skew");
-    inject_case("ANSELA",       ANSELA_ADDR, "ansel",  false, 0x01,
+    // The ANSELA gate masks the fixed RA0|RA1|RA2 (BYPASS_OUTPUT_DDR_MASK) on every
+    // variant, so re-selecting ANY output pin analog must recover via one reset --
+    // not just RA0 (a narrowed mask that only checked RA0 would slip RA1/RA2 past).
+    inject_case("ANSELA.RA0",   ANSELA_ADDR, "ansel",  false, 0x01,
                 "ANSA0=1: RA0 (LED) re-selected analog, out of digital service");
+    inject_case("ANSELA.RA1",   ANSELA_ADDR, "ansel",  false, 0x02,
+                "ANSA1=1: RA1 (control pin) re-selected analog, out of digital service");
+    inject_case("ANSELA.RA2",   ANSELA_ADDR, "ansel",  false, 0x04,
+                "ANSA2=1: RA2 (control pin) re-selected analog, out of digital service");
 
     // pull-up SFRs (hw_footswitch_pullup_intact) -- footswitch is externally
     // driven, so the pin stays released; only the gate's check reacts.

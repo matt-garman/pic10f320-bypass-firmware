@@ -146,7 +146,15 @@ static void test_fault_injection(void) {
     expect_reset(FWI_WDTPS_SKEW,       "WDTCON WDTPS skewed off the ~256 ms period");
     expect_reset(FWI_PR2_SKEW,         "PR2 skewed off the 1 ms tick reload");
     expect_reset(FWI_T2CON_SKEW,       "T2CON skewed off the configured prescale/enable");
-    expect_reset(FWI_ANSELA_SKEW,      "ANSELA RA0 re-selected analog (output not digital)");
+    // ANSELA analog re-selection. Unlike the TRISA output-pin check -- whose mask is
+    // per-variant, making RA2 a negative control on cd4053-simple above -- the ANSELA
+    // term in hw_critical_sfrs_intact() masks the FIXED BYPASS_OUTPUT_DDR_MASK
+    // (RA0|RA1|RA2) on EVERY variant. All three output pins are always driven digital
+    // (even the spare RA2 on cd4053-simple), so an analog re-selection of ANY of them
+    // must force a reset regardless of output scheme (no per-variant #if here).
+    expect_reset(FWI_ANSELA_SKEW_RA0,  "ANSELA RA0 (LED) re-selected analog");
+    expect_reset(FWI_ANSELA_SKEW_RA1,  "ANSELA RA1 (control pin) re-selected analog");
+    expect_reset(FWI_ANSELA_SKEW_RA2,  "ANSELA RA2 (control pin) re-selected analog");
 }
 
 //////////////////////////////////////////////////////////////////////////////

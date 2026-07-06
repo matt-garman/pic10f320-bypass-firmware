@@ -54,6 +54,10 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@(TMR2_PR2_PERIOD == PR2)@1U@	test-fault-variants	FW tick-period (PR2) SEU guard defeated (corrupt 1 ms reload never forces reset)"
 "bypass_mcu_pic10f320.c	s@(TMR2_T2CON_CONFIG == T2CON)@1U@	test-fault-variants	FW tick-control (T2CON) SEU guard defeated (corrupt prescale/enable never forces reset)"
 "bypass_mcu_pic10f320.c	s@(0U == (uint8_t)(ANSELA & BYPASS_OUTPUT_DDR_MASK))@1U@	test-fault-variants	FW digital-port (ANSELA) SEU guard defeated (output pin re-selected analog never forces reset)"
+# The ANSELA guard masks the FIXED BYPASS_OUTPUT_DDR_MASK (RA0|RA1|RA2). Narrowing
+# it to RA0 alone still catches an RA0 skew but silently drops RA1/RA2 detection;
+# killed only because test-fault injects ANSELA skews on RA1 and RA2 as well as RA0.
+"bypass_mcu_pic10f320.c	s@ANSELA & BYPASS_OUTPUT_DDR_MASK@ANSELA \& 0x01U@	test-fault-variants	FW ANSELA sanity mask narrowed to RA0 only (RA1/RA2 analog re-selection undetected)"
 # --- firmware: GPIO / footswitch wiring -------------------------------------------
 # LED-invert and footswitch-polarity ALSO diverge on RA0, so test-equiv kills them
 # too; they are listed under gpsim as the register-level oracle. The CD4053 control

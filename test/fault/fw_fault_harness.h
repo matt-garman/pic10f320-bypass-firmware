@@ -42,8 +42,16 @@ typedef enum {
     FWI_WDTPS_SKEW,           // WDTCON WDTPS flipped off the ~256 ms watchdog period
     FWI_PR2_SKEW,             // TMR2 period register PR2 flipped off the 1 ms tick reload
     FWI_T2CON_SKEW,           // T2CON flipped off the configured prescale/enable value
-    FWI_ANSELA_SKEW           // ANSELA output-pin bit set: RA0 re-selected analog
-                              // (out of digital output service, TRISA direction unchanged)
+    // ANSELA analog re-selection of an output pin: sets the pin's ANSELA bit so it
+    // leaves digital output service while its TRISA direction still reads "output"
+    // (so the TRISA output-pin check cannot see it -- only the ANSELA term in
+    // hw_critical_sfrs_intact() can). That term masks the FIXED BYPASS_OUTPUT_DDR_MASK
+    // (RA0|RA1|RA2) on EVERY variant -- all three pins are always driven digital, even
+    // the spare RA2 on cd4053-simple -- so re-selecting ANY of RA0/RA1/RA2 must reset
+    // regardless of output scheme (unlike the per-variant TRISA RA2 case above).
+    FWI_ANSELA_SKEW_RA0,      // ANSELA RA0 (LED) re-selected analog
+    FWI_ANSELA_SKEW_RA1,      // ANSELA RA1 (control pin) re-selected analog
+    FWI_ANSELA_SKEW_RA2       // ANSELA RA2 (control pin) re-selected analog
 } fw_inject_t;
 
 // Run the real firmware from a clean power-on, let it complete exactly ONE clean
