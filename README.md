@@ -55,8 +55,9 @@ the full host + formal suite (unit/property/ fuzz, exhaustive
 state-space, symbolic, and CBMC); the **real firmware** is then
 proven behaviorally identical to that model: tick-for-tick over
 exhaustive + random stimulus on the host (comparing the status-LED
-bit RA0, the one output that means the same thing for every variant,
-with a gate that the stimulus visits *every* reachable model state).
+bit RA0 — the one output that means the same thing for every variant —
+*and* the firmware's internal debounce state, with a gate that the
+stimulus visits *every* reachable model state).
 The per-variant control pins (RA1/RA2) are pinned by a host
 **actuation-sequence** test that asserts each variant's full *settled*
 `LATA` at every tick; so even cd4053-simple's lone control pin, which

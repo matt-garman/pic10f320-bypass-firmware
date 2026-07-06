@@ -46,8 +46,8 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: exhaustive state space** | `test-model-check` | All invariants hold over every reachable state (BFS) + the fault path. | host `gcc` |
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
-| **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
-| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED, so the direct-drive (TMUX4053) variants' inverted control pins are pinned too (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (RA0-only) and gpsim (settled-only) cannot see. | host `gcc` |
+| **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace **and** internal debounce state (`program_state`/`effect_state`/`debounce_counter`) tick-for-tick over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
+| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED, so the direct-drive (TMUX4053) variants' inverted control pins are pinned too (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (which watches RA0 + internal state, never the RA1/RA2 control pins) and gpsim (settled-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
 | **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* recovers from an SEU/EMI corruption of **every** gate-guarded SFR (IRCF/WDTPS/PR2/T2CON/ANSELA + the pull-up SFRs) and `ctx_` SRAM field via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The silicon-level companion to `test-fault`. | libgpsim |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
@@ -66,12 +66,15 @@ runs just the three formal engines. Standalone (not in `make test`):
 This is the centrepiece that ties the firmware to the verified model. A mock
 `<xc.h>` (`equiv/xc.h`) replaces the device SFRs with host storage and turns
 `CLRWDT()` into a per-tick hook, so the **actual** `bypass_mcu_pic10f320.c` runs
-on the host one main-loop iteration per simulated tick. `fw_harness.c` captures
-its status-LED bit (`LATA` RA0) per tick — the one output that means the same
-thing for every variant, polarity included (high iff ENGAGED); `test_equiv.c` compares that
-trace against the model for the same footswitch stimulus — exhaustively for all
-length-18 patterns (both power-on states) and over thousands of randomized
-longer sequences. It also **gates state coverage**: it BFS-enumerates the model's
+on the host one main-loop iteration per simulated tick. `fw_harness.c` captures,
+per tick, both its status-LED bit (`LATA` RA0) — the one output that means the same
+thing for every variant, polarity included (high iff ENGAGED) — **and** the firmware's
+live internal debounce state (`program_state`, `effect_state`, `debounce_counter`).
+`test_equiv.c` compares **both** against the model for the same footswitch stimulus,
+tick for tick — exhaustively for all length-18 patterns (both power-on states) and
+over thousands of randomized longer sequences. (A capacity self-check fails loudly if
+the harness's internal-state buffer is ever shorter than the longest stimulus, so no
+tick silently falls back to LED-only.) It also **gates state coverage**: it BFS-enumerates the model's
 reachable states and asserts the stimulus drove the model through every one (so
 the random sampling leaves no reachable state unverified). The variant-specific
 RA1/RA2 control pins are asserted separately on the simulated core by `test-gpsim`.
@@ -83,9 +86,10 @@ test fails. (Verified with a deliberate-mismatch negative control.)
 
 ## The actuation-sequence test (`actuation/`)
 
-The equivalence test compares only RA0 (the status LED). That leaves the
-per-variant control pins (RA1/RA2) — the lines that actually switch the audio —
-unchecked on the host. This layer closes that on two fronts, both by reusing the
+The equivalence test compares RA0 (the status LED) and the firmware's internal
+debounce state — but not the physical per-variant control pins (RA1/RA2), the
+lines that actually switch the audio (the LED bit and the `ctx_` fields don't
+capture them). This layer closes that on two fronts, both by reusing the
 equivalence firmware harness.
 
 **Settled control pins (every variant, every tick).** The harness's per-tick hook
@@ -122,7 +126,8 @@ The pin map and per-variant output stages are hand-written here (PIC-local, not
 shared with the parent), so a transcription error in them is the same class of
 inlining bug `test-equiv` catches for the debounce core — and between the two
 layers above, every variant's control pins are now pinned on the host, settled and
-(where they exist) mid-pulse. RA0 (the LED) remains the equivalence test's job.
+(where they exist) mid-pulse. RA0 (the LED) and the internal debounce state remain
+the equivalence test's job.
 
 ## The fault-injection test (`fault/`)
 
