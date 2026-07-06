@@ -58,8 +58,10 @@ level):
 The `cd4053-*` and `tmux4053-*` images differ only in control-pin drive polarity:
 pick **CD4053** when the analog switch is driven through a MOSFET inverter, or
 **TMUX4053** when it is driven directly at logic level. All five target the
-**PIC10F320** at 16 MHz (INTOSC). The per-release `MANIFEST.md` lists every image
-with its flash-word usage and exact flashing command.
+**PIC10F320** on its internal oscillator (INTOSC); the core is clocked at
+**2 MHz** as of v0.9.3 (v0.9.0–v0.9.2 ran at 16 MHz). The per-release
+`MANIFEST.md` records each image's core clock, flash-word usage, and exact
+flashing command.
 
 ## Verify a download
 
