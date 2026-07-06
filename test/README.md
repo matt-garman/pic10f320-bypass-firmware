@@ -197,11 +197,14 @@ the ENGAGED full-`LATA` check.
   This scenario also carries the one **non-settled** checkpoint, `PRESS1_EARLY`
   (~3.5 ms into the first press): the LED must still be **off**, because the
   debounce demands `PRESSED_THRESH` *separated* 1 ms samples (~8 ms) before it may
-  toggle. This **pins the 1 ms tick cadence** — the single firmware behaviour the
-  host harnesses cannot observe, since they force `TMR2IF=1` so the tick poll never
-  actually waits. A firmware whose tick stopped gating (free-running poll) crosses
-  the threshold within microseconds of the press edge and lights the LED here; gpsim
-  is its sole oracle (see the tick-cadence mutant under *Mutation testing*).
+  toggle. This **pins that the tick actually *gates* the loop** — the single firmware
+  behaviour the host harnesses cannot observe, since they force `TMR2IF=1` so the tick
+  poll never actually waits. A firmware whose tick stopped gating (free-running poll)
+  crosses the threshold within microseconds of the press edge and lights the LED here;
+  gpsim is its sole oracle (see the tick-gating mutant under *Mutation testing*). It is
+  a one-sided *too-fast* guard: it does **not** fix the tick's absolute period (a
+  slower-than-1 ms tick keeps the LED off here too), and it runs in gpsim's own timer,
+  so the real 1 ms period stays a bench-only guarantee (see *Known gaps*).
 - **`pic/power_on_pressed.stc`**: a switch held CLOSED at power-on must come up
   BYPASS and not engage until a genuine release + fresh press.
 
@@ -221,11 +224,13 @@ Almost every firmware mutant is killed by a **host** target (the LED-invert and
 footswitch-polarity mutants diverge on RA0, so they are targeted at `test-equiv`,
 which — unlike `test-gpsim` — is never skipped when gpsim is absent), with gpsim a
 redundant second oracle. The **one deliberate
-exception** is the **tick-cadence** mutant (the `TMR2IF` clear removed, so the 1 ms
-poll never re-blocks and the loop free-runs): tick *timing* is unobservable on the
+exception** is the **tick-gating** mutant (the `TMR2IF` clear removed, so the 1 ms
+poll never re-blocks and the loop free-runs): tick *gating* is unobservable on the
 host by construction — the host harnesses force `TMR2IF=1` — so gpsim's mid-debounce
 `PRESS1_EARLY` checkpoint is its **sole** killer. That is the correct division of
-labour: cadence is a simulated-core concern, and this is the test that pins it.
+labour: whether the tick gates the loop is a simulated-core concern, and this is the
+test that pins it. (The tick's absolute *period* is a separate, bench-only matter —
+gpsim's TMR2 prescaler model is not faithful across all settings; see *Known gaps*.)
 
 ## Why CONFIG-word verification matters
 
@@ -248,9 +253,26 @@ identical in layout, so this decoder is shared with the parent.
   responsiveness at scale, but still asserts nothing about WDT *timing* (it uses
   the WDT only as a qualitative liveness signal — see the note in
   `pic/test_soak_pic.cc`). Note this is distinct from the **1 ms TMR2 tick
-  cadence**, which gpsim *does* model and which the `PRESS1_EARLY` checkpoint now
-  pins (see *gpsim functional scenarios*); only the WDT/BOR *real-time* behaviour
-  remains bench-only.
+  cadence**: gpsim models the tick for the firmware's *current* prescale
+  (`T2CKPS = 0b10` = 1:16), which the `PRESS1_EARLY` checkpoint exercises (see
+  *gpsim functional scenarios*) — but gpsim's TMR2 prescaler model is **not**
+  faithful across all settings (next bullet), so the *absolute* tick period on
+  silicon is itself a bench-only guarantee.
+- **TMR2 prescaler *select* is not faithfully modelled by gpsim.** gpsim clamps
+  `T2CKPS = 0b11` to a 1:16 prescale instead of the datasheet's 1:64
+  (`0b00`/`0b01`/`0b10` → `1:1`/`1:4`/`1:16` are modelled correctly; only the top
+  code is wrong). The firmware uses `0b10` (1:16), which gpsim gets right, so the
+  current build's 1 ms tick *is* faithfully simulated — but gpsim cannot
+  independently catch a wrong prescale *select*, because a `0b11` (1:64 → 4 ms)
+  config still reads as 1 ms in the sim. This is exactly what let an earlier
+  `T2CON = 0x07` (`0b11`) slip through: the firmware intended 1:16 but selected
+  1:64, and gpsim's clamp masked the resulting 4×-slow tick until it was caught by
+  cross-checking the programmed register value against the datasheet (fixed in
+  *firmware: correct TMR2 tick prescaler (T2CKPS 0b11 → 0b10)*). The host
+  equivalence / lock-step layers are tick-*counted*, so they are period-agnostic
+  by construction and cannot catch it either. As with WDT timing, the absolute
+  tick period is a hardware-bench concern — shared with the parent's PIC build
+  (same TMR2, same datasheet).
 - **KLEE symbolic execution** is now wired as the optional, skip-clean
   `make test-symbolic-klee` target (`test_symbolic.c` supports `-DUSE_KLEE`); it
   is not part of `make test`, since the exhaustive host enumeration
