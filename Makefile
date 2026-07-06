@@ -199,7 +199,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
-        test-cbmc test-equiv test-actuation test-soak test-fault-gpsim \
+        test-cbmc test-equiv test-actuation test-soak test-fault-gpsim test-lockstep-gpsim \
         test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
@@ -657,6 +657,66 @@ test-fault-gpsim: all
 	$(PIC_FAULT_COMPILE); \
 	./$(PIC_FAULT_BIN)
 
+# --- silicon-level LOCK-STEP co-simulation (libgpsim + reference model) -------
+# The strongest HEX-vs-model check: drive the SAME footswitch stimulus into the
+# real built HEX (in gpsim) and the reference model's step(), and after EVERY
+# main-loop iteration assert the firmware's live ctx_ SRAM (program_state /
+# effect_state / debounce_counter) matches the model's post-step state. test-equiv
+# proves the firmware C matches the model on the host; this proves the XC8-compiled
+# instruction stream does, tick for tick -- the child's analogue of the parent's
+# simavr lock-step. Links the reference model (bypass_pure.c, as test-equiv does)
+# plus libgpsim. STANDALONE and NOT part of `make test`: needs gpsim-dev +
+# libglib2.0-dev; skips cleanly when the toolchain/headers/HEX are absent. The
+# debounce path is shared by every output shell, so this is variant-agnostic;
+# PIC_VARIANT only selects which HEX is loaded. See test/pic/test_lockstep_pic.cc.
+PIC_LOCKSTEP_SRC = test/pic/test_lockstep_pic.cc
+PIC_LOCKSTEP_BIN = $(BUILD_DIR)/test_lockstep_pic
+PIC_LOCKSTEP_MODEL_OBJ = $(BUILD_DIR)/bypass_pure_lockstep.o
+# _ctx_'s data address from the XC8 .sym (same extraction as the fault test); the
+# lock-step REQUIRES it (the driver #errors without CTX_ADDR), and the `_ctx_: ds 3`
+# guard below confirms the 1-byte field packing the offsets assume.
+PIC_LOCKSTEP_CTX_DEF = $(shell a=$$(awk '$$1=="_ctx_"{print $$2; exit}' $(HEX:.hex=.sym) 2>/dev/null); [ -n "$$a" ] && echo -DCTX_ADDR=0x$$a)
+# Compile the reference model as C (HOST_CC), then the C++ driver, and link both +
+# libgpsim. -Itest/-Itest/model resolve model_step.h + the vendored model headers.
+PIC_LOCKSTEP_COMPILE = \
+	$(HOST_CC) $(HOST_CFLAGS) $(HOST_INC) -c $(MODEL_SRC) -o $(PIC_LOCKSTEP_MODEL_OBJ) && \
+	$(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
+		-isystem $(PIC_SOAK_GPSIM_INC) $(HOST_INC) \
+		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
+		-DF_CPU_HZ=$(PIC_XTAL) $(PIC_LOCKSTEP_CTX_DEF) \
+		$(PIC_LOCKSTEP_SRC) $(PIC_LOCKSTEP_MODEL_OBJ) -o $(PIC_LOCKSTEP_BIN) -lgpsim
+
+# Build-only hook (parity with the fault/soak bins); the phony run rule recompiles
+# so a PIC_VARIANT override is always applied.
+$(PIC_LOCKSTEP_BIN): $(PIC_LOCKSTEP_SRC)
+	$(PIC_LOCKSTEP_COMPILE)
+
+.PHONY: test-lockstep-gpsim
+test-lockstep-gpsim: all
+	@if ! command -v $(PIC_SOAK_CXX) >/dev/null 2>&1; then \
+		echo "no C++ compiler ($(PIC_SOAK_CXX)); skipping gpsim lock-step"; exit 0; \
+	fi; \
+	if [ ! -f "$(PIC_SOAK_GPSIM_INC)/sim_context.h" ]; then \
+		echo "gpsim-dev headers not at $(PIC_SOAK_GPSIM_INC); skipping gpsim lock-step (install gpsim-dev)"; exit 0; \
+	fi; \
+	if ! pkg-config --exists glib-2.0 2>/dev/null; then \
+		echo "libglib2.0-dev not found; skipping gpsim lock-step (install libglib2.0-dev)"; exit 0; \
+	fi; \
+	if [ ! -f "$(HEX)" ]; then \
+		echo "no $(HEX) (XC8 absent?); skipping gpsim lock-step"; exit 0; \
+	fi; \
+	s="$(HEX:.hex=.s)"; \
+	alloc=`awk 'prev=="_ctx_:"{print $$2; exit} {prev=$$1}' "$$s" 2>/dev/null`; \
+	if [ "$$alloc" != "3" ]; then \
+		echo "FAIL: _ctx_ allocates $${alloc:-?} bytes in $$s -- expected 3 (packed 1-byte enums)."; \
+		echo "      test_lockstep_pic.cc reads ctx_+0/+1/+2 (program_state/effect_state/"; \
+		echo "      debounce_counter); fix the offsets if the packing changed."; \
+		exit 1; \
+	fi; \
+	echo "--- gpsim lock-step: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) ---"; \
+	$(PIC_LOCKSTEP_COMPILE); \
+	./$(PIC_LOCKSTEP_BIN)
+
 # --- mutation testing --------------------------------------------------------
 # Inject deliberate faults into the firmware and the model, and confirm the suite
 # detects each one. NOT part of `make test` (it rebuilds per mutant).
@@ -761,6 +821,8 @@ help:
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
 	@echo "  test-fault-gpsim  inject SFR/SRAM faults on the real HEX in gpsim; assert exactly"
 	@echo "                  one WDT-reset recovery per fault (standalone; needs gpsim-dev)"
+	@echo "  test-lockstep-gpsim  lock-step the real HEX vs the model in gpsim: assert ctx_"
+	@echo "                  matches the model every loop iteration (standalone; needs gpsim-dev)"
 	@echo "  test-mutation   inject firmware/model faults, verify the suite kills them"
 	@echo "Analysis:"
 	@echo "  analyze         cppcheck bug-finding + MISRA-C:2012 (static analysis)"

@@ -50,6 +50,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED, so the direct-drive (TMUX4053) variants' inverted control pins are pinned too (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (which watches RA0 + internal state, never the RA1/RA2 control pins) and gpsim (settled-only) cannot see. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
 | **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* recovers from an SEU/EMI corruption of **every** gate-guarded SFR (IRCF/WDTPS/PR2/T2CON/ANSELA + the pull-up SFRs) and `ctx_` SRAM field via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The silicon-level companion to `test-fault`. | libgpsim |
+| **Firmware ↔ model lock-step on a simulated core** | `test-lockstep-gpsim` | The *real built HEX* reproduces the model's internal debounce state (`program_state`/`effect_state`/`debounce_counter`) at **every main-loop iteration** in gpsim — pinning the XC8 *codegen*, not just the firmware C that `test-equiv` runs on the host. Directed + random stimulus visits every reachable model state. The silicon-level companion to `test-equiv`. | libgpsim + model |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
 | Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
@@ -58,8 +59,9 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 `make test-variants` repeats the whole suite for all five. `make test-formal`
 runs just the three formal engines. Standalone (not in `make test`):
 `make test-mutation` (below), `make test-soak` (a long-run libgpsim soak),
-`make test-fault-gpsim` (silicon-level fault injection on the real HEX), and
-`make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
+`make test-fault-gpsim` (silicon-level fault injection on the real HEX),
+`make test-lockstep-gpsim` (silicon-level firmware↔model lock-step on the real HEX),
+and `make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
 
 ## The equivalence test (`equiv/`)
 
