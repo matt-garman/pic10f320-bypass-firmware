@@ -38,7 +38,7 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
-| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (215 / 238 / 238 for cd4053-simple / -mute / tq2-relay; each tmux4053-\* matches its cd4053-\* sibling). | XC8 |
+| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (217 / 240 / 241 for cd4053-simple / -mute / tq2-relay; each tmux4053-\* matches its cd4053-\* sibling). | XC8 |
 | Bug-finding analysis | `analyze-cppcheck` | No cppcheck findings. | cppcheck (`pic8-enhanced`) |
 | MISRA-C:2012 | `analyze-misra` | Zero MISRA deviations (`../MISRA_COMPLIANCE.md`). | cppcheck + MISRA addon |
 | CONFIG word | `test-config` | The CONFIG word XC8 emitted matches design intent (`0x389E`). | host `gcc` |
@@ -254,15 +254,15 @@ identical in layout, so this decoder is shared with the parent.
   the WDT only as a qualitative liveness signal — see the note in
   `pic/test_soak_pic.cc`). Note this is distinct from the **1 ms TMR2 tick
   cadence**: gpsim models the tick for the firmware's *current* prescale
-  (`T2CKPS = 0b10` = 1:16), which the `PRESS1_EARLY` checkpoint exercises (see
+  (`T2CKPS = 0b01` = 1:4 at 2 MHz), which the `PRESS1_EARLY` checkpoint exercises (see
   *gpsim functional scenarios*) — but gpsim's TMR2 prescaler model is **not**
   faithful across all settings (next bullet), so the *absolute* tick period on
   silicon is itself a bench-only guarantee.
 - **TMR2 prescaler *select* is not faithfully modelled by gpsim.** gpsim clamps
   `T2CKPS = 0b11` to a 1:16 prescale instead of the datasheet's 1:64
   (`0b00`/`0b01`/`0b10` → `1:1`/`1:4`/`1:16` are modelled correctly; only the top
-  code is wrong). The firmware uses `0b10` (1:16), which gpsim gets right, so the
-  current build's 1 ms tick *is* faithfully simulated — but gpsim cannot
+  code is wrong). The firmware uses `0b01` (1:4, at 2 MHz), which gpsim gets right, so
+  the current build's 1 ms tick *is* faithfully simulated — but gpsim cannot
   independently catch a wrong prescale *select*, because a `0b11` (1:64 → 4 ms)
   config still reads as 1 ms in the sim. This is exactly what let an earlier
   `T2CON = 0x07` (`0b11`) slip through: the firmware intended 1:16 but selected

@@ -67,9 +67,9 @@ static NullBuf g_nullbuf;
 #  define PROC_NAME "p10f320"
 #endif
 #ifndef F_CPU_HZ
-#  define F_CPU_HZ 16000000UL          // FOSC; instruction clock = FOSC/4
+#  define F_CPU_HZ 2000000UL           // FOSC; instruction clock = FOSC/4
 #endif
-#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 4000 @ 16 MHz
+#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 500 @ 2 MHz
 
 // Debounce thresholds (PRESSED_THRESH, RELEASE_THRESH) come from the vendored
 // reference model's config (test/model/bypass_config.h), which the equivalence

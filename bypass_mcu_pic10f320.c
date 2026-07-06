@@ -86,13 +86,13 @@
 //    mute = LED(RA0), CTL1(RA1), CTL2(RA2)
 //    cd4053-simple = LED(RA0), CD4053(RA1), leaving RA2 a spare driven low
 // Mask 0x07 for all
-#define BYPASS_OUTPUT_DDR_MASK (0x07U)  // RA0|RA1|RA2
+#define BYPASS_OUTPUT_DDR_MASK (0x07U) // RA0|RA1|RA2
 
 
-// HFINTOSC frequency select value for 16 MHz (OSCCONbits.IRCF = 0b111).
+// HFINTOSC frequency select value for 2 MHz (OSCCONbits.IRCF = 0b100).
 // Must agree with _XTAL_FREQ (which is asserted below).
 // Referenced both in init() and per-tick runtime sanity in main()
-#define HFINTOSC_16MHZ_IRCF (0x07U)
+#define HFINTOSC_2MHZ_IRCF (0x04U) // 0b100 = 2 MHz
 
 // WDT postscaler value for the chosen ~256 ms watchdog period.
 // Per DS40001585: WDTPS = 0b01000 => 1:8192 on the ~31 kHz LFINTOSC.
@@ -100,10 +100,8 @@
 // Referenced both in init() and per-tick runtime sanity in main()
 #define WDT_WDTPS_256MS (0x08U)
 
-
-#define TMR2_T2CON_CONFIG (0x06U)  // T2CON: T2CKPS=0b10, TMR2ON=1
-#define TMR2_PR2_PERIOD     (249U) // PR2 = 249 -> 250 counts @ 250 kHz
-
+#define TMR2_T2CON_CONFIG (0x05U)  // T2CKPS=0b01 (1:4),  TMR2ON=1
+#define TMR2_PR2_PERIOD     (124U) // PR2 = 124 -> 125 counts @ 125 kHz
 
 
 
@@ -162,9 +160,9 @@ static_assert(FOOTSW_PIN  == _PORTA_RA3_POSN, "FOOTSW_PIN must be RA3");
 static_assert(LED_PIN     == _PORTA_RA0_POSN, "LED_PIN must be RA0");
 
 // _XTAL_FREQ (a build flag, used by the drivers' __delay_ms) must match the
-// 16MHz HFINTOSC selected in init(), or the coil/mute pulse widths
+// 2MHz HFINTOSC selected in init(), or the coil/mute pulse widths
 // would be wrong.
-static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCCON IRCF)");
+static_assert(_XTAL_FREQ ==  2000000UL, "_XTAL_FREQ must be 2 MHz (matches OSCCON IRCF)");
 
 
 // Watchdog safety margin: formalises the hand-calculated budget described in
@@ -174,8 +172,8 @@ static_assert(_XTAL_FREQ == 16000000UL, "_XTAL_FREQ must be 16 MHz (matches OSCC
 // the WDT's worst-case (shortest) period, or a healthy main loop could trip the
 // dog.  The per-variant pulse term is asserted next to the existing
 // "pulse < RELEASE_THRESH" check in each hw_is_sanity_check_failed().
-//   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=249 with the 1:16 prescaler on
-//                       FOSC/4=4MHz -> 250kHz, so 250 counts = 1ms).
+//   TICK_PERIOD_MS    : the 1ms TMR2 tick (PR2=124 with the 1:4 prescaler on
+//                       FOSC/4=500kHz -> 125kHz, so 125 counts = 1ms).
 //   WDT_MIN_PERIOD_MS : ~256ms nominal (WDTPS=0x08 = 1:8192 on the ~31kHz
 //                       LFINTOSC), de-rated by the datasheet worst-case -37%
 //                       (param 31) to a ~160ms floor.
@@ -496,7 +494,7 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 
 
 // non-zero IFF the critical configuration SFRs still hold the values init() set:
-// the 16MHz clock select (OSCCON.IRCF), the ~256ms watchdog period
+// the 2MHz clock select (OSCCON.IRCF), the ~256ms watchdog period
 // (WDTCON.WDTPS), the 1ms tick timer (PR2 + T2CON), and the all-digital
 // output-pin select (ANSELA bits for RA0..RA2 clear).  An SEU/EMI flip of any of
 // these silently breaks timing, or -- for ANSELA -- takes an output pin out of
@@ -511,7 +509,7 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 // violation.  In case this function ever fails MISRA 13.5, we can
 // re-introduce the local variables (assuming there is flash space).
 static uint8_t hw_critical_sfrs_intact(void) {
-    return (HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF) &&
+    return (HFINTOSC_2MHZ_IRCF == OSCCONbits.IRCF) &&
         (WDT_WDTPS_256MS == WDTCONbits.WDTPS) &&
         (TMR2_PR2_PERIOD == PR2) &&
         (TMR2_T2CON_CONFIG == T2CON) &&
@@ -558,7 +556,7 @@ static void init(void) {
 
 
 
-    // core MCU bring-up: 16MHz HFINTOSC, all-digital port, the footswitch weak
+    // core MCU bring-up: 2MHz HFINTOSC, all-digital port, the footswitch weak
     // pull-up, the global weak-pull-up enable, and the ~256ms watchdog period.
     // Does NOT start the tick timer (see below).
     //
@@ -566,9 +564,9 @@ static void init(void) {
     // ANSELA/pull-up writes here do not disturb the output-pin direction
     // setup.
     //
-    // HFINTOSC = 16 MHz (IRCF = 0b111).  Must match _XTAL_FREQ (asserted
+    // HFINTOSC = 2 MHz (IRCF = 0b100).  Must match _XTAL_FREQ (asserted
     // below), which the relay/mute drivers' __delay_ms() relies on.
-    OSCCONbits.IRCF = HFINTOSC_16MHZ_IRCF;
+    OSCCONbits.IRCF = HFINTOSC_2MHZ_IRCF;
 
     // entire port digital -- the I/O pins power up as analog inputs.
     ANSELA = 0x00U;
@@ -615,14 +613,14 @@ static void init(void) {
     // tick.
     //
     // configure + start the 1ms tick on TMR2, polled (no interrupt).  At
-    // FOSC=16MHz the timer clock is FOSC/4 = 4MHz; the 1:16 PREscaler
-    // (T2CKPS) -> 250kHz, and PR2=249 -> (249+1) = 250 counts = 1ms per
+    // FOSC=2MHz the timer clock is FOSC/4 = 500kHz; the 1:4 PREscaler
+    // (T2CKPS) -> 125kHz, and  │ PR2=124 -> (124+1) = 125 counts = 1ms
     // period.  The output POSTscaler (T2OUTPS) is set to 1:1, so TMR2IF
     // asserts on every PR2 match (once per 1ms), not once per N matches.
     // MUST run AFTER any blocking output actuation so a TMR2IF that set
     // during init is not mistaken for the first real tick.
     PR2   = TMR2_PR2_PERIOD;   // 1ms period
-    T2CON = TMR2_T2CON_CONFIG; // T2CKPS = 0b10 (1:16 prescale), TMR2ON = 1
+    T2CON = TMR2_T2CON_CONFIG; // T2CKPS = 0b01 (1:4 prescale), TMR2ON = 1
     PIR1bits.TMR2IF = 0;       // start clean
 }
 
@@ -654,7 +652,7 @@ void main(void) {
                 // assert footswitch pull-up still enabled
                 (0U == hw_footswitch_pullup_intact()) ||
                 // assert the critical config SFRs still hold their init() values
-                // (16MHz clock, ~256ms WDT period, 1ms tick timer, all-digital
+                // (2MHz clock, ~256ms WDT period, 1ms tick timer, all-digital
                 // output pins) -- see hw_critical_sfrs_intact()
                 (0U == hw_critical_sfrs_intact()) ||
                 // config-specific runtime sanity checks

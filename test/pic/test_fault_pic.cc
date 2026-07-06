@@ -113,9 +113,9 @@ static NullBuf g_nullbuf;
 #  define PROC_NAME "p10f320"
 #endif
 #ifndef F_CPU_HZ
-#  define F_CPU_HZ 16000000UL          // FOSC; instruction clock = FOSC/4
+#  define F_CPU_HZ 2000000UL           // FOSC; instruction clock = FOSC/4
 #endif
-#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 4000 @ 16 MHz
+#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 500 @ 2 MHz
 
 // PIC pin map (bypass_mcu_pic10f320.c): RA3 footswitch (1=released, 0=pressed),
 // RA0 = LED on LATA bit0.
@@ -158,6 +158,17 @@ static NullBuf g_nullbuf;
 // Safety cap: max run() resumes to cover one ms. A genuinely wedged core (PC
 // stuck, never reaching the cycle break) trips this instead of hanging forever.
 #define MAX_RESUMES_PER_MS 64
+// Loop "pet the dog" CLRWDT address (0x005d on every variant; init()'s CLRWDT is
+// 0x005f). Injections are parked here so the corruption lands at a DETERMINISTIC
+// loop phase: CLRWDT is the last thing before looping back to the tick poll, so
+// the very next sanity gate reads the injected value BEFORE the debounce
+// integrator (which rewrites ctx_.debounce_counter every tick) can overwrite it.
+// Without this, injecting at the arbitrary phase where the ms-settle happens to
+// halt is racy for the every-tick-rewritten ctx_ fields (it depends on FOSC and
+// per-variant loop layout).
+#ifndef LOOP_CLRWDT_ADDR
+#  define LOOP_CLRWDT_ADDR 0x005Du
+#endif
 
 // ---- Sim globals ------------------------------------------------------------
 static pic_processor   *g_cpu      = nullptr;
@@ -232,6 +243,23 @@ static void run_ms(unsigned ms) {
     }
 }
 
+// Advance (single-cycle steps via run(), which -- unlike step_one -- services
+// peripherals) until the core is parked AT the loop CLRWDT, so a subsequent
+// injection lands at a deterministic, gate-before-integrate loop phase. Caps at a
+// few ticks' worth of cycles so a wedged core can't spin forever.
+static void advance_to_loop_clrwdt(void) {
+    for (int i = 0; i < 8000; ++i) {
+        if (g_cpu->pc->get_value() == LOOP_CLRWDT_ADDR)
+            return;
+        guint64 c = get_cycles().get() + 1;
+        get_cycles().set_break(c);
+        g_cpu->run(false);
+        get_cycles().clear_break(c);
+    }
+    fprintf(stderr, "WARN: never reached loop CLRWDT 0x%03x (layout changed?)\n",
+            (unsigned)LOOP_CLRWDT_ADDR);
+}
+
 // ---- One injection case -----------------------------------------------------
 // absolute=true writes `val`; absolute=false writes (current ^ val), i.e. an
 // SEU bit-flip of the bits in `val`. Asserts EXACTLY ONE recovery reset.
@@ -239,6 +267,7 @@ static void inject_case(const char *label, unsigned addr, const char *token,
                         bool absolute, unsigned val, const char *note) {
     footsw_set(0);                 // released: quiescent, only the SFR can trip
     run_ms(SETTLE_MS);             // (re)reach the main loop after any prior reset
+    advance_to_loop_clrwdt();      // park at a deterministic loop phase (see note)
 
     Register *r = fetch_sfr(addr, token);
     if (r == nullptr) { g_checks++; g_fails++; return; }
@@ -331,13 +360,13 @@ int main() {
 
     // config SFRs (hw_critical_sfrs_intact)
     inject_case("OSCCON.IRCF",  OSCCON_ADDR, "osccon", false, 0x10,
-                "IRCF 0b111->0b110: 16MHz->8MHz clock skew");
+                "IRCF 0b100->0b101: 2MHz->4MHz clock skew");
     inject_case("WDTCON.WDTPS", WDTCON_ADDR, "wdtcon", false, 0x10,
                 "WDTPS 0b01000->0b00000: 1:8192->1:512, WDT miscalibrated (else silent)");
     inject_case("PR2",          PR2_ADDR,    "pr2",    true,  99,
-                "tick period 249->99: 1ms tick skewed");
+                "tick period 124->99: 1ms tick skewed");
     inject_case("T2CON",        T2CON_ADDR,  "t2con",  false, 0x01,
-                "T2CKPS 1:16->1:4, TMR2ON preserved: timer cfg skew");
+                "T2CKPS 1:4->1:1, TMR2ON preserved: timer cfg skew");
     // The ANSELA gate masks the fixed RA0|RA1|RA2 (BYPASS_OUTPUT_DDR_MASK) on every
     // variant, so re-selecting ANY output pin analog must recover via one reset --
     // not just RA0 (a narrowed mask that only checked RA0 would slip RA1/RA2 past).

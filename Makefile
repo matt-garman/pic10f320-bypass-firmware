@@ -34,7 +34,7 @@ PIC_CC          ?= /opt/microchip/xc8/v3.10/bin/xc8-cc
 PIC_DFP         ?= /opt/microchip/mdfp/PIC10-12Fxxx_DFP/1.9.189/xc8
 PIC_CHIP        ?= 10F320
 PIC_TAG         ?= pic10f320
-PIC_XTAL        ?= 16000000UL
+PIC_XTAL        ?= 2000000UL
 
 # PIC10F320 device budget: 256 words flash / 64 B RAM.
 PIC_FLASH_WORDS ?= 256
@@ -104,7 +104,7 @@ HEX             := $(BUILD_DIR)/$(FW_BASE)_$(PIC_VARIANT)_$(PIC_TAG).hex
 
 # XC8 compile flags: select the PIC10F320 + its DFP, C99 (XC8 has no C11, so
 # static_assert is aliased to _Static_assert in the source), -O2, and
-# _XTAL_FREQ for __delay_ms / the 16 MHz HFINTOSC compile-time assert.
+# _XTAL_FREQ for __delay_ms / the 2 MHz HFINTOSC compile-time assert.
 PIC_CFLAGS      := -mcpu=$(PIC_CHIP) -mdfp=$(PIC_DFP) -std=c99 -O2 \
                    -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF)
 
@@ -797,7 +797,7 @@ release:
 help:
 	@echo "PIC10F320 bypass firmware -- annotated target list."
 	@echo "Variants: $(PIC_VARIANTS_ALL)  (select with PIC_VARIANT=<name>; default $(PIC_VARIANT))"
-	@echo "MCU: PIC10F320 ($(PIC_FLASH_WORDS)-word flash / 64 B RAM), 16 MHz INTOSC"
+	@echo "MCU: PIC10F320 ($(PIC_FLASH_WORDS)-word flash / 64 B RAM), 2 MHz INTOSC"
 	@echo "Build:"
 	@echo "  all (default)   build the selected variant's .hex + $(PIC_FLASH_WORDS)-word flash-budget gate"
 	@echo "  size            print XC8's full program/data memory summary"

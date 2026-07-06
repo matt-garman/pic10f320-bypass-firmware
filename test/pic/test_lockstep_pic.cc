@@ -91,12 +91,12 @@ extern "C" {
 #  define PROC_NAME "p10f320"
 #endif
 #ifndef F_CPU_HZ
-#  define F_CPU_HZ 16000000UL          // FOSC; instruction clock = FOSC/4
+#  define F_CPU_HZ 2000000UL           // FOSC; instruction clock = FOSC/4
 #endif
 #ifndef CTX_ADDR
 #  error "CTX_ADDR (the _ctx_ SRAM address from the XC8 .sym) must be passed by the Makefile"
 #endif
-#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 4000 @ 16 MHz
+#define CYCLES_PER_MS  ((F_CPU_HZ / 4UL) / 1000UL)   // 500 @ 2 MHz
 #define CLRWDT_OPCODE  0x0064u                        // 14-bit enhanced-midrange CLRWDT
 #define FOOTSW_PIN_NAME "ra3"
 

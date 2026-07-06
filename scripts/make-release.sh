@@ -61,7 +61,7 @@
 #
 # This script is long-running, dominated by the parallel soaks. Each soak
 # exercises 24 h of *simulated* MCU time -- NOT 24 h of wall-clock. gpsim
-# simulates the 16 MHz core faster than real time, so the wall-clock cost is
+# simulates the 2 MHz core faster than real time, so the wall-clock cost is
 # host-dependent and typically well under 24 h; it is still long enough that you
 # should run this on a machine that can stay up, with all toolchains installed
 # (XC8 + PIC10-12Fxxx DFP + gpsim/gpsim-dev + cppcheck + cbmc + a host C/C++
@@ -131,7 +131,7 @@ FW_BASE=$(mkv FW_BASE)             # bypass_mcu
 BUILD_DIR=$(mkv BUILD_DIR)         # build_pic
 PIC_TAG=$(mkv PIC_TAG)             # pic10f320
 PIC_CHIP=$(mkv PIC_CHIP)           # 10F320
-PIC_XTAL=$(mkv PIC_XTAL)           # 16000000UL
+PIC_XTAL=$(mkv PIC_XTAL)           # 2000000UL
 PIC_FLASH_WORDS=$(mkv PIC_FLASH_WORDS) # 256
 PIC_GPSIM_PROC=$(mkv PIC_GPSIM_PROC)   # p10f320
 PIC_CC=$(mkv PIC_CC)
@@ -404,7 +404,7 @@ img_row() {
 	local v="${base#${FW_BASE}_}"; v="${v%_${PIC_TAG}.hex}"
 	local used="${WORDS[$v]:-?}"
 	printf '| `%s` | %s | %s | %s words / %s | %s | `%s` |\n' \
-		"$base" "PIC10F320" "16 MHz (INTOSC)" "${used}" "$PIC_FLASH_WORDS" \
+		"$base" "PIC10F320" "2 MHz (INTOSC)" "${used}" "$PIC_FLASH_WORDS" \
 		"CONFIG word embedded in HEX" "$sha"
 	printf '%s\tpk2cmd -PPIC10F320 -F%s -M -Y -R\n' "$base" "$base" >> "$WORK/flashcmds.txt"
 }

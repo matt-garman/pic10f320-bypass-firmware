@@ -38,7 +38,7 @@ typedef enum {
     // period, or the 1ms tick timer must also force a reset. These four gate
     // checks (main()'s IRCF / WDTPS / PR2 / T2CON comparisons) are variant-
     // independent and MUST trip regardless of output scheme.
-    FWI_OSCCON_IRCF_SKEW,     // OSCCON IRCF flipped off the 16 MHz select (clock corrupted)
+    FWI_OSCCON_IRCF_SKEW,     // OSCCON IRCF flipped off the 2 MHz select (clock corrupted)
     FWI_WDTPS_SKEW,           // WDTCON WDTPS flipped off the ~256 ms watchdog period
     FWI_PR2_SKEW,             // TMR2 period register PR2 flipped off the 1 ms tick reload
     FWI_T2CON_SKEW,           // T2CON flipped off the configured prescale/enable value

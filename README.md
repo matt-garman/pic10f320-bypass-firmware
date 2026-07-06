@@ -42,8 +42,8 @@ This is intentionally a separate child project of
   into the firmware is instead **recovered here by proving the inlined firmware
   behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output stage (all fit the 256-word budget):
-  **cd4053-simple 215 (84.0%)**, **cd4053-with-mute 238 (93.0%)**,
-  **tq2-relay 238 (93.0%)**; 10 / 64 bytes RAM. The direct-drive
+  **cd4053-simple 217 (84.8%)**, **cd4053-with-mute 240 (93.8%)**,
+  **tq2-relay 241 (94.1%)**; 10 / 64 bytes RAM. The direct-drive
   **tmux4053-\*** variants build the same driver source with the
   control-pin polarity flipped — only `bsf`↔`bcf` (both single-word)
   swap — so each matches its `cd4053-*` sibling's word count.
@@ -183,6 +183,35 @@ make PIC_CC=/path/to/xc8-cc PIC_DFP=/path/to/DFP/x.y.z/xc8
 
 The build lands in `build_pic/bypass_mcu_<variant>_pic10f320.hex` (e.g.
 `build_pic/bypass_mcu_cd4053-simple_pic10f320.hex`).
+
+
+## Power / current draw
+
+The core runs at **2 MHz** (HFINTOSC) on a **polled 1 ms tick** — a busy-wait on
+`TMR2IF`, never asleep. The PIC10F320 has no idle mode, and its only Sleep-capable
+periodic wake is the coarse WDT (TMR0/TMR2 are FOSC/4-clocked and stop in Sleep),
+so a *precise* 1 ms tick necessarily means staying awake. The design spends that
+power deliberately, to buy a precise tick and a high-margin, independent watchdog;
+a deep-sleep scheme would have to give up one or both (see *Known gaps* in
+`test/README.md`).
+
+Given that the loop is always awake, the clock frequency sets the current draw. The
+core is clocked at 2 MHz rather than the part's 16 MHz maximum: the debounce +
+per-tick sanity work is only ~210 instruction-cycles, so 2 MHz (500 cycles/ms)
+runs it at ~42 % utilisation — comfortable headroom — while roughly **halving**
+the supply current:
+
+| FOSC | active IDD @ 5 V (typ) | ≈ power | per-tick headroom |
+| ---- | --------------------- | ------- | ----------------- |
+| 16 MHz | ~0.85 mA | ~4.25 mW | 19× |
+| **2 MHz** | **~0.43 mA** | **~2.1 mW** | **2.4×** |
+
+(IDD interpolated from DS40001585 D017–D019; 16 MHz is the tabulated figure.) A
+lower clock also emits less high-frequency switching noise into the analog audio
+path. Note this firmware is **not** battery-optimised — in a typical pedal the
+always-on status LED and the analog signal path dominate the supply, so the MCU's
+sub-milliamp draw is usually negligible; the 2 MHz choice is simply "no reason to
+burn 4 mW when 2 does the same job."
 
 
 ## Prebuilt releases

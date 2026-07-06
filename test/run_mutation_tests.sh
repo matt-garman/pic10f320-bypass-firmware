@@ -49,7 +49,7 @@ MUTATIONS=(
 # replaces one comparison with a constant true (1U), so that SFR is no longer
 # checked. Valid stimulus never trips them, so test-equiv/test-gpsim stay green;
 # only test-fault's IRCF/WDTPS/PR2/T2CON/ANSELA injections kill them.
-"bypass_mcu_pic10f320.c	s@(HFINTOSC_16MHZ_IRCF == OSCCONbits.IRCF)@1U@	test-fault-variants	FW clock-select (OSCCON IRCF) SEU guard defeated (corrupt clock never forces reset)"
+"bypass_mcu_pic10f320.c	s@(HFINTOSC_2MHZ_IRCF == OSCCONbits.IRCF)@1U@	test-fault-variants	FW clock-select (OSCCON IRCF) SEU guard defeated (corrupt clock never forces reset)"
 "bypass_mcu_pic10f320.c	s@(WDT_WDTPS_256MS == WDTCONbits.WDTPS)@1U@	test-fault-variants	FW watchdog-period (WDTCON WDTPS) SEU guard defeated (corrupt WDT period never forces reset)"
 "bypass_mcu_pic10f320.c	s@(TMR2_PR2_PERIOD == PR2)@1U@	test-fault-variants	FW tick-period (PR2) SEU guard defeated (corrupt 1 ms reload never forces reset)"
 "bypass_mcu_pic10f320.c	s@(TMR2_T2CON_CONFIG == T2CON)@1U@	test-fault-variants	FW tick-control (T2CON) SEU guard defeated (corrupt prescale/enable never forces reset)"

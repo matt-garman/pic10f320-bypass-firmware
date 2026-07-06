@@ -24,7 +24,7 @@ a check that silently did nothing.
   Distribution: Ubuntu 24.04 (Noble) base packages
   CI runner:    ubuntu-24.04 (pinned; see .github/workflows/ci.yml)
 
-== PIC toolchain (target: PIC10F320, 16 MHz INTOSC)
+== PIC toolchain (target: PIC10F320, 2 MHz INTOSC)
 
 The firmware is cross-compiled to the PIC10F320 with Microchip XC8.  Both XC8 and
 the device-family pack are Microchip downloads, NOT apt packages.  Override the
@@ -70,8 +70,8 @@ XC8 / device-pack behaviours relied on (proven against V3.10 + DFP v1.9.189):
 
   - XC8 V3.10 compiles C99 only (no C11); the firmware's static_assert is shimmed
     to the _Static_assert keyword in the source.
-  - _XTAL_FREQ (for the drivers' __delay_ms and the 16 MHz HFINTOSC compile-time
-    assert) is supplied via -D_XTAL_FREQ=16000000UL in the Makefile.
+  - _XTAL_FREQ (for the drivers' __delay_ms and the 2 MHz HFINTOSC compile-time
+    assert) is supplied via -D_XTAL_FREQ=2000000UL in the Makefile.
   - const-qualified locals initialised from a runtime call are placed in program
     ROM and rejected, so the firmware avoids that pattern.
 
