@@ -101,7 +101,7 @@
 #define WDT_WDTPS_256MS (0x08U)
 
 
-#define TMR2_T2CON_CONFIG (0x07U)  // T2CON: T2CKPS=0b11, TMR2ON=1
+#define TMR2_T2CON_CONFIG (0x06U)  // T2CON: T2CKPS=0b10, TMR2ON=1
 #define TMR2_PR2_PERIOD     (249U) // PR2 = 249 -> 250 counts @ 250 kHz
 
 
@@ -622,7 +622,7 @@ static void init(void) {
     // MUST run AFTER any blocking output actuation so a TMR2IF that set
     // during init is not mistaken for the first real tick.
     PR2   = TMR2_PR2_PERIOD;   // 1ms period
-    T2CON = TMR2_T2CON_CONFIG; // T2CKPS = 0b11 (1:16 prescale), TMR2ON = 1
+    T2CON = TMR2_T2CON_CONFIG; // T2CKPS = 0b10 (1:16 prescale), TMR2ON = 1
     PIR1bits.TMR2IF = 0;       // start clean
 }
 
