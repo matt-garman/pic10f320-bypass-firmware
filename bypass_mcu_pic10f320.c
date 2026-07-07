@@ -100,8 +100,8 @@
 // Referenced both in init() and per-tick runtime sanity in main()
 #define WDT_WDTPS_256MS (0x08U)
 
-#define TMR2_T2CON_CONFIG (0x05U)  // T2CKPS=0b01 (1:4),  TMR2ON=1
-#define TMR2_PR2_PERIOD     (124U) // PR2 = 124 -> 125 counts @ 125 kHz
+#define TMR2_T2CON_CONFIG (0x05U) // T2CKPS=0b01 (1:4),  TMR2ON=1
+#define TMR2_PR2_PERIOD   (124U)  // PR2 = 124 -> 125 counts @ 125 kHz
 
 
 
@@ -509,7 +509,8 @@ static uint8_t hw_footswitch_pullup_intact(void) {
 // violation.  In case this function ever fails MISRA 13.5, we can
 // re-introduce the local variables (assuming there is flash space).
 static uint8_t hw_critical_sfrs_intact(void) {
-    return (HFINTOSC_2MHZ_IRCF == OSCCONbits.IRCF) &&
+    return
+        (HFINTOSC_2MHZ_IRCF == OSCCONbits.IRCF) &&
         (WDT_WDTPS_256MS == WDTCONbits.WDTPS) &&
         (TMR2_PR2_PERIOD == PR2) &&
         (TMR2_T2CON_CONFIG == T2CON) &&
