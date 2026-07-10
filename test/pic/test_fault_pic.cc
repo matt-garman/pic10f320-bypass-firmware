@@ -13,7 +13,8 @@
 // COVERAGE -- every location the gate guards:
 //   * config SFRs    OSCCON.IRCF / WDTCON.WDTPS / PR2 / T2CON / ANSELA
 //                    (hw_critical_sfrs_intact)
-//   * pull-up SFRs   WPUA (RA3 latch) + OPTION_REG.nWPUEN
+//   * pull-up SFRs   WPUA (exactly RA3 latched, RA0..RA2 clear) +
+//                    OPTION_REG.nWPUEN
 //                    (hw_footswitch_pullup_intact)
 //   * ctx_ SRAM      program_state / effect_state / debounce_counter (range checks)
 // The ctx_ cases run only when CTX_ADDR is passed (the Makefile extracts _ctx_'s
@@ -316,6 +317,22 @@ static void control_case(void) {
     fflush(stdout);
 }
 
+// The PIC10F320 resets WPUA to 0x0F. init() must replace that with the exact
+// RA3-only mask before globally enabling pull-ups; preserving RA0..RA2 would let
+// a later TRISA direction fault activate a pull-up against the fail-safe pull-down.
+static void check_startup_wpua(void) {
+    Register *r = fetch_sfr(WPUA_ADDR, "wpu");
+    g_checks++;
+    if (r == nullptr) { g_fails++; return; }
+    unsigned const val = r->get_value() & 0x0Fu;
+    if (val == 0x08u) {
+        printf("  PASS: startup WPUA is RA3-only (0x08)\n");
+    } else {
+        g_fails++;
+        printf("  FAIL: startup WPUA is 0x%02x (want exact RA3-only 0x08)\n", val);
+    }
+}
+
 int main() {
     std::cout.rdbuf(&g_nullbuf);                 // silence gpsim's console chatter
     initialize_gpsim_core();
@@ -356,13 +373,14 @@ int main() {
     fflush(stdout);
 
     // Negative control first, then one case per guarded location.
+    check_startup_wpua();
     control_case();
 
     // config SFRs (hw_critical_sfrs_intact)
     inject_case("OSCCON.IRCF",  OSCCON_ADDR, "osccon", false, 0x10,
                 "IRCF 0b100->0b101: 2MHz->4MHz clock skew");
     inject_case("WDTCON.WDTPS", WDTCON_ADDR, "wdtcon", false, 0x10,
-                "WDTPS 0b01000->0b00000: 1:8192->1:512, WDT miscalibrated (else silent)");
+                "WDTPS 0b01000->0b00000: 1:8192->1:32, WDT miscalibrated (else silent)");
     inject_case("PR2",          PR2_ADDR,    "pr2",    true,  99,
                 "tick period 124->99: 1ms tick skewed");
     inject_case("T2CON",        T2CON_ADDR,  "t2con",  false, 0x01,
@@ -381,6 +399,12 @@ int main() {
     // driven, so the pin stays released; only the gate's check reacts.
     inject_case("WPUA.RA3",     WPUA_ADDR,   "wpu",    false, 0x08,
                 "clear RA3 pull-up latch: footswitch weak pull-up disabled");
+    inject_case("WPUA.RA0",     WPUA_ADDR,   "wpu",    false, 0x01,
+                "set RA0 output-pin pull-up latch: exact RA3-only mask violated");
+    inject_case("WPUA.RA1",     WPUA_ADDR,   "wpu",    false, 0x02,
+                "set RA1 output-pin pull-up latch: exact RA3-only mask violated");
+    inject_case("WPUA.RA2",     WPUA_ADDR,   "wpu",    false, 0x04,
+                "set RA2 output-pin pull-up latch: exact RA3-only mask violated");
     inject_case("OPTION.nWPUEN",OPTION_ADDR, "option", false, 0x80,
                 "set nWPUEN: global weak pull-ups disabled");
 

@@ -90,6 +90,16 @@ static void test_predicates(void) {
     sfr_clean(); WPUA &= (uint8_t)~(1u << 3);
     CHECK(fwp_pullup_intact() == 0, "cleared WPUA latch must read pull-up NOT intact");
 
+    // Output-pin pull-up latches must remain clear. They are electrically dormant
+    // while TRISA says output, but become active immediately after a direction
+    // fault and can oppose the external fail-safe pull-down until watchdog reset.
+    sfr_clean(); WPUA |= (uint8_t)(1u << 0);
+    CHECK(fwp_pullup_intact() == 0, "extra WPUA RA0 latch must read pull-up configuration NOT intact");
+    sfr_clean(); WPUA |= (uint8_t)(1u << 1);
+    CHECK(fwp_pullup_intact() == 0, "extra WPUA RA1 latch must read pull-up configuration NOT intact");
+    sfr_clean(); WPUA |= (uint8_t)(1u << 2);
+    CHECK(fwp_pullup_intact() == 0, "extra WPUA RA2 latch must read pull-up configuration NOT intact");
+
     // global pull-up disable -- SEU on OPTION_REG nWPUEN
     sfr_clean(); OPTION_REGbits.nWPUEN = 1u;
     CHECK(fwp_pullup_intact() == 0, "global nWPUEN=1 must read pull-up NOT intact");
@@ -117,6 +127,9 @@ static void expect_no_reset(fw_inject_t inj, const char *what) {
 static void test_fault_injection(void) {
     // Negative controls: a valid state must run on without a reset.
     expect_no_reset(FWI_NONE,          "no corruption");
+    CHECK(WPUA == (uint8_t)(1u << 3),
+          "init must replace WPUA's 0x0F reset value with RA3-only 0x08 (got 0x%02X)",
+          (unsigned)WPUA);
     expect_no_reset(FWI_VALID_ENGAGED, "valid ENGAGED/RELEASE-wait state");
 
     // Positive: each SEU/EMI corruption must be caught by the sanity gate.
@@ -125,6 +138,9 @@ static void test_fault_injection(void) {
     expect_reset(FWI_EFFECT_STATE_OOR,     "effect_state=2 (out of range)");
     expect_reset(FWI_COUNTER_OOR,          "debounce_counter > RELEASE_THRESH (out of range)");
     expect_reset(FWI_PULLUP_LATCH_CLEARED, "WPUA pull-up latch cleared");
+    expect_reset(FWI_PULLUP_EXTRA_RA0,     "WPUA RA0 output-pin pull-up latch set");
+    expect_reset(FWI_PULLUP_EXTRA_RA1,     "WPUA RA1 output-pin pull-up latch set");
+    expect_reset(FWI_PULLUP_EXTRA_RA2,     "WPUA RA2 output-pin pull-up latch set");
     expect_reset(FWI_PULLUP_GLOBAL_OFF,    "OPTION_REG nWPUEN=1 (global pull-up off)");
     expect_reset(FWI_LED_PIN_TO_INPUT,     "TRISA RA0 (LED) flipped to input");
     expect_reset(FWI_CD4053_PIN_TO_INPUT,  "TRISA RA1 (CD4053/RESET) flipped to input");

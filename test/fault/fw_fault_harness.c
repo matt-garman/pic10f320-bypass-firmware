@@ -52,11 +52,14 @@
 #endif
 
 // --- SFR storage (declared extern in the mock xc.h) --------------------------
-uint8_t LATA, PORTA, TRISA, ANSELA, WPUA, PR2, T2CON;
+static uint8_t g_lata;
+uint8_t PORTA, TRISA, ANSELA, WPUA, PR2, T2CON;
 OPTION_REGbits_t OPTION_REGbits;
 OSCCONbits_t     OSCCONbits;
 WDTCONbits_t     WDTCONbits;
 INTCONbits_t     INTCONbits;
+
+uint8_t *bypass_lata_access(void) { return &g_lata; }
 
 static PIR1bits_t g_pir1;
 PIR1bits_t *bypass_pir1(void) {
@@ -93,7 +96,9 @@ static void present_footswitch(int i) {
 
 // Reset all mock SFRs to a clean power-on with the footswitch released.
 static void reset_sfrs_power_on(void) {
-    LATA = PORTA = TRISA = ANSELA = WPUA = PR2 = T2CON = 0u;
+    g_lata = 0u;
+    PORTA = TRISA = ANSELA = PR2 = T2CON = 0u;
+    WPUA = 0x0Fu; // PIC10F320 POR/MCLR value: all per-pin pull-up latches set
     OPTION_REGbits.nWPUEN = 1u; OSCCONbits.IRCF = 0u; WDTCONbits.WDTPS = 0u;
     INTCONbits.GIE = 1u; g_pir1.TMR2IF = 0u;
     PORTA |= (uint8_t)(1u << 3); // footswitch released at power-on
@@ -144,6 +149,9 @@ static void apply_injection(int inj) {
         case FWI_EFFECT_STATE_OOR:     ctx_.effect_state  = (effect_state_t)2;    break;
         case FWI_COUNTER_OOR:          ctx_.debounce_counter = (uint8_t)(RELEASE_THRESH + 50U); break;
         case FWI_PULLUP_LATCH_CLEARED: WPUA &= (uint8_t)~(1u << 3);               break;
+        case FWI_PULLUP_EXTRA_RA0:     WPUA |= (uint8_t)(1u << 0);                break;
+        case FWI_PULLUP_EXTRA_RA1:     WPUA |= (uint8_t)(1u << 1);                break;
+        case FWI_PULLUP_EXTRA_RA2:     WPUA |= (uint8_t)(1u << 2);                break;
         case FWI_PULLUP_GLOBAL_OFF:    OPTION_REGbits.nWPUEN = 1u;                break;
         case FWI_LED_PIN_TO_INPUT:     TRISA |= (uint8_t)(1u << 0);               break;
         case FWI_CD4053_PIN_TO_INPUT:  TRISA |= (uint8_t)(1u << 1);               break;

@@ -320,29 +320,17 @@ static void hw_x4053_ctl2_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
 
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
-//
-// NOTE: both set_bypass and set_engaged claim a re-assertion of the state
-//       from which we're switching.  Note that "re-assertion" is not
-//       technically true for the set_bypass function at startup (or after a
-//       RESET) - this is because the hardware design intent is to default to
-//       bypass state at power-on.  In effect, at power-on, the following
-//       happens:
-//          - the effect state is bypass due to hardware wiring
-//          - the MCU boots, and immediately calls hw_set_bypass_state()
-//          - the engaged state is "re-asserted": in this specific case, it
-//            actually flips to engaged, then...
-//          - immediately flips to bypass
-//
 static void hw_set_bypass_state(void) {
-    hw_x4053_ctl1_low(); // re-assert previous ENGAGED state
-    hw_x4053_ctl2_low();
+	// Exact pull-up configuration integrity: RA3 latch set, RA0..RA2 clear,
+	// and global weak pull-ups enabled.  Extra output-pin latches are faults
+	// because a TRISA upset would make them electrically active.
 
     hw_led_pin_set_low(); // dark status LED
 
-    hw_x4053_ctl1_high(); // MUTE
+    hw_x4053_ctl1_high(); // ENGAGED -> MUTE
     hw_x4053_mute_delay(); // busy sleep for pre-switch mute time
 
-    hw_x4053_ctl2_high(); // un-mute in BYPASS state
+    hw_x4053_ctl2_high(); // MUTE -> BYPASS (i.e. un-mute in BYPASS state)
 }
 
 static void hw_set_engaged_state(void) {
@@ -467,9 +455,12 @@ static pin_state_t hw_read_footswitch(void) {
 // effect on the right operand of &&), a rule from which the project does not
 // deviate.
 static uint8_t hw_footswitch_pullup_intact(void) {
-    uint8_t pin_latched = (uint8_t)(WPUA & (1U << FOOTSW_PIN));
-    uint8_t wpu_global  = (uint8_t)OPTION_REGbits.nWPUEN; // 0 = enabled
-    return (0U != pin_latched) && (0U == wpu_global);
+    uint8_t wpua_latches = (uint8_t)(WPUA & 0x0FU);
+    uint8_t wpu_global   = (uint8_t)OPTION_REGbits.nWPUEN; // 0 = enabled
+
+    return
+        (wpua_latches == (uint8_t)(1U << FOOTSW_PIN)) &&
+        (0U == wpu_global);
 }
 
 
@@ -555,8 +546,9 @@ static void init(void) {
     // enable the footswitch (RA3) input pull-up
     // FOOTSW_PIN high = released; low = pressed
     // belt-and-suspenders alongside any external pull-up
-    WPUA  |= (uint8_t)(1U << FOOTSW_PIN);
+    WPUA = (uint8_t)(1U << FOOTSW_PIN);
     OPTION_REGbits.nWPUEN = 0; // enable weak pull-ups globally (active-low)
+
 
     // ~256ms (WDTPS = 0b01000 = 1:8192 on the ~31kHz LFINTOSC), mirroring the
     // AVR shell's 250ms.  The LFINTOSC has ±25% tolerance (datasheet OS09)

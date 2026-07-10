@@ -29,6 +29,9 @@ typedef enum {
     FWI_EFFECT_STATE_OOR,     // effect_state  = 2 (outside the 0..1 enum range)
     FWI_COUNTER_OOR,          // debounce_counter > RELEASE_THRESH (SEU above valid range)
     FWI_PULLUP_LATCH_CLEARED, // WPUA footswitch pull-up latch flipped off
+    FWI_PULLUP_EXTRA_RA0,     // WPUA RA0 latch flipped on (must remain RA3-only)
+    FWI_PULLUP_EXTRA_RA1,     // WPUA RA1 latch flipped on (must remain RA3-only)
+    FWI_PULLUP_EXTRA_RA2,     // WPUA RA2 latch flipped on (must remain RA3-only)
     FWI_PULLUP_GLOBAL_OFF,    // OPTION_REG nWPUEN set (global pull-up disable)
     FWI_LED_PIN_TO_INPUT,     // TRISA RA0 (LED) flipped from output to input
     FWI_CD4053_PIN_TO_INPUT,  // TRISA RA1 (CD4053) flipped from output to input

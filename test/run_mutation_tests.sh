@@ -42,9 +42,14 @@ MUTATIONS=(
 # They are invisible to test-equiv/test-gpsim (valid stimulus never trips the
 # check); only test-fault, which injects corrupted state, kills them.
 "bypass_mcu_pic10f320.c	s@return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);@return 0U;@	test-fault-variants	FW output-pin SEU check neutered (lost LED/CD4053 output never detected)"
-"bypass_mcu_pic10f320.c	s@return (0U != pin_latched) \&\& (0U == wpu_global);@return 1U;@	test-fault-variants	FW footswitch pull-up SEU check neutered (disabled pull-up never detected)"
+"bypass_mcu_pic10f320.c	s@(0U == wpu_global)@1U@	test-fault-variants	FW global footswitch pull-up SEU check neutered (nWPUEN corruption never detected)"
 "bypass_mcu_pic10f320.c	s@(ctx_.effect_state > ENGAGED)@(ctx_.effect_state > 99U)@	test-fault-variants	FW effect_state range guard defeated (corrupt effect_state never forces reset)"
 "bypass_mcu_pic10f320.c	s@(ctx_.debounce_counter > RELEASE_THRESH)@(ctx_.debounce_counter > 255U)@	test-fault-variants	FW counter range guard defeated (corrupt debounce_counter never forces reset)"
+# WPUA resets to 0x0F on the PIC10F320. The exact assignment must clear the
+# output-pin pull-up latches, and the runtime predicate must keep checking that
+# exact RA3-only mask rather than masking away unexpected RA0..RA2 latches.
+"bypass_mcu_pic10f320.c	s@WPUA = (uint8_t)(1U << FOOTSW_PIN);@WPUA |= (uint8_t)(1U << FOOTSW_PIN);@	test-fault-variants	FW pull-up init regressed to read-modify-write: WPUA reset value 0x0F preserved instead of exact RA3-only 0x08"
+"bypass_mcu_pic10f320.c	s@WPUA \& 0x0FU@WPUA \& (1U << FOOTSW_PIN)@	test-fault-variants	FW pull-up integrity guard masks away unexpected RA0..RA2 WPUA latches"
 # The five config-SFR guards below live in hw_critical_sfrs_intact(); each mutant
 # replaces one comparison with a constant true (1U), so that SFR is no longer
 # checked. Valid stimulus never trips them, so test-equiv/test-gpsim stay green;
@@ -101,6 +106,7 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@hw_relay_reset_pin_set_high(); // pulse reset coil@hw_relay_set_pin_set_high(); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_CTL1     (1U) // RA1@#  define CD4053_CTL1     (2U) // MUTANT@;s@#  define CD4053_CTL2     (2U) // RA2@#  define CD4053_CTL2     (1U) // MUTANT@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute CTL1/CTL2 pins swapped (mute applied to wrong control; mid-mute LATA pattern wrong, settles to same LATA so equiv/gpsim miss it)"
+"bypass_mcu_pic10f320.c	s@    hw_x4053_ctl1_high(); // MUTE@    hw_x4053_ctl1_low(); // MUTANT: reassert ENGAGED at startup\\n    hw_x4053_ctl2_low();\\n\\n    hw_x4053_ctl1_high(); // MUTE@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute startup reasserts ENGAGED before MUTE, traversing INVALID/ENGAGED routing instead of remaining continuously in BYPASS"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------
 "test/model/bypass_pure.c	s@{ ++counter; }@{ --counter; }@	test-host	MODEL integrator increment becomes decrement"
 "test/model/bypass_pure.c	s@ctx.debounce_counter >= PRESSED_THRESH@ctx.debounce_counter > PRESSED_THRESH@	test-host	MODEL press threshold off-by-one (>= becomes >)"

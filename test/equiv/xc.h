@@ -20,7 +20,12 @@
 #include <stdint.h>
 
 // --- whole-byte SFRs --------------------------------------------------------
-extern uint8_t LATA;    // output latch  (RA0=LED, RA1=CD4053)
+// LATA remains an assignable lvalue, but every access passes through the
+// harness. This lets the actuation test observe the result of every firmware
+// LATA write, including instruction-scale startup transitions between the
+// existing delay and end-of-tick snapshots.
+uint8_t *bypass_lata_access(void);
+#define LATA (*bypass_lata_access())
 extern uint8_t PORTA;   // input port    (RA3=footswitch)
 extern uint8_t TRISA;   // data direction (0=output)
 extern uint8_t ANSELA;  // analog select  (0=digital)

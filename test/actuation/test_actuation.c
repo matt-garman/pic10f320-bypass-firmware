@@ -45,6 +45,8 @@ extern void     fw_run(const uint8_t *fsw, int n, uint8_t *trace);
 extern int      fw_actuation_count(void);
 extern uint8_t  fw_actuation_lata(int i);
 extern unsigned fw_actuation_ms(int i);
+extern int      fw_init_lata_transition_count(void);
+extern uint8_t  fw_init_lata_transition(int i);
 extern int      fw_tick_count(void);   // settled per-tick LATA samples available
 extern uint8_t  fw_tick_lata(int i);   // full SETTLED LATA at end of tick i
 
@@ -99,6 +101,36 @@ int main(void) {
 
     int const count = fw_actuation_count();
 
+    // Every distinct LATA value written during init(), not just the state sampled
+    // at __delay_ms(). Analog-switch variants already start in hardware BYPASS
+    // (all control pins low), so initialization must not leave that state. The
+    // relay intentionally pulses RESET once, then returns both coils low.
+    {
+        int const init_n = fw_init_lata_transition_count();
+#if defined(OUTPUT_CD4053_SIMPLE) || defined(OUTPUT_CD4053_WITH_MUTE)
+        CHECK(init_n == 0,
+              "analog-switch init must remain continuously at BYPASS LATA 0x0; got %d transition(s)",
+              init_n);
+        for (int i = 0; i < init_n; ++i) {
+            CHECK(fw_init_lata_transition(i) == 0u,
+                  "analog-switch init transition %d left BYPASS: LATA=0x%X",
+                  i, (unsigned)fw_init_lata_transition(i));
+        }
+#elif defined(OUTPUT_TQ2_RELAY)
+        CHECK(init_n == 2,
+              "relay init must produce exactly RESET pulse 0x2 -> settled 0x0; got %d transition(s)",
+              init_n);
+        if (init_n == 2) {
+            CHECK(fw_init_lata_transition(0) == 0x2u,
+                  "relay init transition 0 must energize RESET only (0x2), got 0x%X",
+                  (unsigned)fw_init_lata_transition(0));
+            CHECK(fw_init_lata_transition(1) == 0x0u,
+                  "relay init transition 1 must de-energize both coils (0x0), got 0x%X",
+                  (unsigned)fw_init_lata_transition(1));
+        }
+#endif
+    }
+
     // Settled control-pin check (host-side, every variant). The CLRWDT hook samples
     // LATA at the END of each main-loop iteration -- after hw_set_*_state() and any
     // blocking __delay_ms pulse have completed -- so LATA is fully SETTLED there.
@@ -151,9 +183,9 @@ int main(void) {
         CHECK(fw_actuation_lata(2) == EXP_BYPASS_MID,
               "bypass mid-mute LATA should be 0x%X (one control muted mid-switch, LED off), got 0x%X",
               (unsigned)EXP_BYPASS_MID, (unsigned)fw_actuation_lata(2));
-        CHECK(fw_actuation_lata(0) == EXP_BYPASS_MID,
-              "power-on init-bypass mid-mute LATA should be 0x%X, got 0x%X",
-              (unsigned)EXP_BYPASS_MID, (unsigned)fw_actuation_lata(0));
+        CHECK(fw_actuation_lata(0) == EXP_BYPASS_LATA,
+              "power-on init must remain continuously in BYPASS LATA 0x%X, got 0x%X at delay",
+              (unsigned)EXP_BYPASS_LATA, (unsigned)fw_actuation_lata(0));
     }
 
 #elif defined(OUTPUT_TQ2_RELAY)

@@ -47,9 +47,9 @@ Everything runs from the top-level `Makefile`; each target skips cleanly
 | **Model: symbolic single-step** | `test-symbolic` | The per-step transition relation holds over the full input domain. | host `gcc` |
 | **Model: bounded model checking** | `test-cbmc` | Same invariants via a SAT/SMT engine, plus freedom from UB (overflow/conversion/bounds). | cbmc |
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace **and** internal debounce state (`program_state`/`effect_state`/`debounce_counter`) tick-for-tick over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
-| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick — for both BYPASS and ENGAGED (so even cd4053-simple's lone control pin, with no blocking pulse, is verified on the host), **and** the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation — the transient that equiv (which watches RA0 + internal state, never the RA1/RA2 control pins) and gpsim (settled-only) cannot see. | host `gcc` |
-| **Firmware fault injection** | `test-fault` | The *real firmware*'s defensive layer detects SEU/EMI state corruption and forces a watchdog reset (and valid states do not). | host `gcc` |
-| **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* recovers from an SEU/EMI corruption of **every** gate-guarded SFR (IRCF/WDTPS/PR2/T2CON/ANSELA + the pull-up SFRs) and `ctx_` SRAM field via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The silicon-level companion to `test-fault`. | libgpsim |
+| **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick; every distinct startup `LATA` transition is legal (analog-switch variants remain continuously in BYPASS, while relay emits exactly one RESET pulse); and the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation. | host `gcc` |
+| **Firmware fault injection** | `test-fault` | The *real firmware* starts from the PIC's `WPUA=0x0F` reset value but initializes and preserves the exact RA3-only `0x08` mask; its defensive layer detects missing or extra pull-up latches plus the other injected SFR/state corruptions and forces a watchdog reset (and valid states do not). | host `gcc` |
+| **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* initializes `WPUA` to exact RA3-only `0x08` and recovers from an SEU/EMI corruption of the enumerated guarded SFRs (IRCF/WDTPS/PR2/T2CON/ANSELA + missing/extra pull-up latches) and `ctx_` SRAM fields via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The simulated-core companion to `test-fault`. | libgpsim |
 | **Firmware ↔ model lock-step on a simulated core** | `test-lockstep-gpsim` | The *real built HEX* reproduces the model's internal debounce state (`program_state`/`effect_state`/`debounce_counter`) at **every main-loop iteration** in gpsim — pinning the XC8 *codegen*, not just the firmware C that `test-equiv` runs on the host. Directed + random stimulus visits every reachable model state. The silicon-level companion to `test-equiv`. | libgpsim + model |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
@@ -124,6 +124,16 @@ the test asserts the exact mid-actuation pin pattern **and** the pulse width:
 - **cd4053-simple**: no blocking actuation, so *zero* mid-pulse snapshots (its
   control pin is covered by the settled check above).
 
+**Complete startup transition trace.** The mock exposes `LATA` as an assignable
+lvalue through an observation function, so the harness records every distinct
+value produced by consecutive firmware writes, including transitions too short
+for the delay and end-of-tick snapshots. The analog-switch hardware already
+starts at the pulled-down `LATA=0x0` BYPASS state, so both analog variants must
+remain continuously at `0x0` throughout initialization. The relay variant must
+produce exactly `0x2 -> 0x0`: one RESET-coil pulse followed by both coils low.
+This prevents the muted variant from traversing INVALID or ENGAGED routing before
+its nominal startup mute snapshot.
+
 The pin map and per-variant output stages are hand-written here (PIC-local, not
 shared with the parent), so a transcription error in them is the same class of
 inlining bug `test-equiv` catches for the debounce core — and between the two
@@ -146,7 +156,10 @@ between ticks. `test_fault.c` then asserts:
 
 - **predicate probes** — the static sanity predicates return the right verdict
   for both good and SEU-corrupted SFRs (e.g. a `TRISA` bit flipped from output to
-  input for RA0, RA1, or RA2, a cleared `WPUA` latch, `nWPUEN` set);
+  input for RA0, RA1, or RA2, a cleared RA3 `WPUA` latch, any RA0–RA2 pull-up
+  latch unexpectedly set, or `nWPUEN` set). The host SFR model starts at the
+  PIC10F320's real `WPUA=0x0F` reset value and requires `init()` to replace it
+  with the exact RA3-only mask `0x08`;
 - **fault injection** — after one clean iteration, an out-of-range
   `program_state`/`effect_state` or a critical-SFR flip makes the next iteration
   force a watchdog reset, while valid states (including a valid ENGAGED state) do
@@ -170,9 +183,11 @@ toggle lines, so it backs the `coverage-check-fw` gate.
 
 On the host, that reset is *inferred* from the spin (the mock has no real
 watchdog). `make test-fault-gpsim` (`pic/test_fault_pic.cc`, standalone, needs
-`gpsim-dev` + `libglib2.0-dev`) closes that gap on a simulated core: it injects
-the same corruption into every gate-guarded SFR (`OSCCON.IRCF`, `WDTCON.WDTPS`,
-`PR2`, `T2CON`, `ANSELA`, `WPUA`, `OPTION_REG.nWPUEN`) and `ctx_` SRAM field of
+`gpsim-dev` + `libglib2.0-dev`) closes that gap on a simulated core: it first
+requires the built HEX to initialize `WPUA` to exact RA3-only `0x08`, then injects
+the same corruption into the enumerated guarded SFRs (`OSCCON.IRCF`,
+`WDTCON.WDTPS`, `PR2`, `T2CON`, `ANSELA`, missing/extra `WPUA` latches,
+`OPTION_REG.nWPUEN`) and `ctx_` SRAM fields of
 the **real built HEX** and asserts the firmware recovers via **exactly one**
 watchdog reset — real reset-vectoring through `0x000`, with a no-injection
 control asserting none. "Exactly one" (not "≥ 1") also catches a reset-*loop*.
@@ -217,7 +232,7 @@ are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
 control-pin mutants — a swapped relay set/reset coil, a defeated mute window, or a
 mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
 mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
-part of `make test` (it rebuilds per mutant). Currently 31 mutants (25 firmware +
+part of `make test` (it rebuilds per mutant). Currently 34 mutants (28 firmware +
 6 model), all killed.
 
 Almost every firmware mutant is killed by a **host** target (the LED-invert and

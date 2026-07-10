@@ -33,11 +33,38 @@
 #include "xc.h" // the mock; brings in the SFR/type declarations defined below
 
 // --- SFR storage (declared extern in the mock xc.h) --------------------------
-uint8_t LATA, PORTA, TRISA, ANSELA, WPUA, PR2, T2CON;
+static uint8_t g_lata;
+uint8_t PORTA, TRISA, ANSELA, WPUA, PR2, T2CON;
 OPTION_REGbits_t OPTION_REGbits;
 OSCCONbits_t     OSCCONbits;
 WDTCONbits_t     WDTCONbits;
 INTCONbits_t     INTCONbits;
+
+// Record each distinct value produced by a firmware LATA write. LATA is exposed
+// by xc.h as `*bypass_lata_access()`: an access observes the result of the prior
+// write before returning the backing lvalue for the next read/modify/write.
+// Consecutive writes are therefore captured without adding hooks to the firmware.
+#define FW_LATA_TRANSITION_MAX 64
+static uint8_t g_lata_observed;
+static uint8_t g_lata_transitions[FW_LATA_TRANSITION_MAX];
+static int     g_lata_transition_count;
+static int     g_init_lata_transition_count;
+static int     g_lata_tracking;
+
+static void observe_lata_transition(void) {
+    if (g_lata_tracking && g_lata != g_lata_observed) {
+        if (g_lata_transition_count < FW_LATA_TRANSITION_MAX) {
+            g_lata_transitions[g_lata_transition_count] = g_lata;
+        }
+        g_lata_transition_count++;
+        g_lata_observed = g_lata;
+    }
+}
+
+uint8_t *bypass_lata_access(void) {
+    observe_lata_transition();
+    return &g_lata;
+}
 
 static PIR1bits_t g_pir1;
 PIR1bits_t *bypass_pir1(void) {
@@ -77,6 +104,11 @@ void bypass_on_delay_ms(unsigned ms) {
 int      fw_actuation_count(void) { return g_act_count; }
 uint8_t  fw_actuation_lata(int i) { return (i >= 0 && i < g_act_count) ? g_act_lata[i] : 0xFFu; }
 unsigned fw_actuation_ms(int i)   { return (i >= 0 && i < g_act_count) ? g_act_ms[i]   : 0u; }
+int      fw_init_lata_transition_count(void) { return g_init_lata_transition_count; }
+uint8_t  fw_init_lata_transition(int i) {
+    return (i >= 0 && i < g_init_lata_transition_count && i < FW_LATA_TRANSITION_MAX)
+        ? g_lata_transitions[i] : 0xFFu;
+}
 
 // --- settled per-tick full-LATA capture ---------------------------------------
 // g_trace (above) records only RA0 (the LED), because that is the one bit the
@@ -158,6 +190,13 @@ void bypass_equiv_on_clrwdt(void) {
     if (g_clrwdt_calls == 1) {
         return; // init()'s initial "pet the dog", before the main loop starts
     }
+    if (g_clrwdt_calls == 2) {
+        // Neither power-on root can toggle on its first debounce iteration, so
+        // transitions observed by this boundary are exactly init()'s output
+        // sequence. Flush the final init write before marking it.
+        observe_lata_transition();
+        g_init_lata_transition_count = g_lata_transition_count;
+    }
     // A main-loop iteration just completed: capture the status-LED (RA0) output
     // for this tick -- the variant-independent witness of effect state.
     g_trace[g_tick] = (uint8_t)(LATA & 0x01u);
@@ -183,10 +222,19 @@ void fw_run(const uint8_t *fsw, int n, uint8_t *trace) {
     g_act_count = 0;    // reset the per-run actuation-snapshot log
     g_tick_lata_n = 0;  // reset the per-run settled per-tick LATA + state log
 
-    // Reset SFR storage so each run starts from a clean power-on.
-    LATA = PORTA = TRISA = ANSELA = WPUA = PR2 = T2CON = 0u;
+    // Reset SFR storage to the PIC10F320's relevant power-on values. WPUA's
+    // implemented bits reset to 1; nWPUEN keeps those pull-ups globally disabled
+    // until init() selects exactly the intended RA3 latch and enables them.
+    g_lata = 0u;
+    PORTA = TRISA = ANSELA = PR2 = T2CON = 0u;
+    WPUA = 0x0Fu;
     OPTION_REGbits.nWPUEN = 1u; OSCCONbits.IRCF = 0u;
     WDTCONbits.WDTPS = 0u; INTCONbits.GIE = 1u; g_pir1.TMR2IF = 0u;
+
+    g_lata_observed = g_lata;
+    g_lata_transition_count = 0;
+    g_init_lata_transition_count = -1;
+    g_lata_tracking = 1;
 
     present_footswitch(0); // power-on footswitch level for init()'s sample
 
