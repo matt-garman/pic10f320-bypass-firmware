@@ -58,18 +58,10 @@
 
 
 
-// CD4053-vs-TMUX4053 control-pin drive polarity. See parent project
-// src/bypass_output_x4053_polarity.h and/or DESIGN_DOCUMENTATION.adoc for
-// details; summary:
-//   - CD4053 at 9-18V: MCU at 5V drives a MOSFET inverter -> MCU high -> 4053 sees LOW
-//   - TMUX4053 at logic level: MCU drives the control pin directly
-// Each OUTPUT_* block below defines its own per-pin hw_*_high()/hw_*_low()
-// functions (one pair per control pin) under this same BYPASS_X4053_DIRECT_DRIVE
-// #if, rather than a single parametric helper -- see the comment next to the
-// CD4053 SIMPLE block for why.
-
-
-
+// Analog-switch control-pin drive polarity (CD4053 / TMUX4053): see parent
+// project code/git history and also parent DESIGN_DOCUMENTATION.adoc:
+// previous code had a polarity-inversion bug for the TMUX4053.  This is now
+// fixed.
 
 // Bits that must be OUTPUTS (RA0|RA1|RA2).
 //
@@ -247,7 +239,7 @@ static uint8_t hw_output_pins_intact(uint8_t const expected_mask) {
 // (one pair per control pin), not as a single hw_pin_set_high/low(pin) helper:
 // every call site passes a compile-time-constant pin, but free-tier XC8 does
 // not propagate that constant through a function-call boundary, so a
-// parametric helper compiles to a real runtime shift loop. Baking the bit into
+// parametric helper compiles to a real runtime shift loop.  Baking the bit into
 // each pin's own function lets it collapse to a single bsf/bcf, matching what
 // hw_led_pin_set_high/low above already do.
 
@@ -266,23 +258,16 @@ static uint8_t hw_is_sanity_check_failed(void) {
     return (hw_output_pins_intact((1U << LED_PIN) | (1U << CD4053_PIN)) == 0U);
 }
 
-// default:
-//   CD4053_PIN high -> MOSFET on  -> CD4053 control pin low
-//   CD4053_PIN low  -> MOSFET off -> CD4053 control pin high
-//
-// with BYPASS_X4053_DIRECT_DRIVE defined:
-//   CD4053_PIN high -> [direct drive] -> TMUX4053 control pin high
-//   CD4053_PIN low  -> [direct drive] -> TMUX4053 control pin low
+// Unified drive polarity (see the drive-polarity comment above): hw_x4053_ctl_high()
+// asserts the analog-switch control signal for BYPASS -> drives CD4053_PIN LOW (the
+// pulled-down fail-safe state); hw_x4053_ctl_low() asserts it for ENGAGE -> drives
+// CD4053_PIN HIGH.  Correct for both the CD4053 (via its MOSFET inverter) and the
+// pin-compatible logic-level TMUX4053 board.
 //
 // constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
 // see the comment below hw_output_pins_intact() for why.
-#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
-static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }
-static void hw_x4053_ctl_low(void)  { LATA &= (uint8_t)~(1U << CD4053_PIN); }
-#else                                  // CD4053 + MOSFET inverter (default)
 static void hw_x4053_ctl_high(void) { LATA &= (uint8_t)~(1U << CD4053_PIN); }
 static void hw_x4053_ctl_low(void)  { LATA |=  (uint8_t)(1U << CD4053_PIN); }
-#endif
 
 static void hw_set_bypass_state(void) {
     hw_led_pin_set_low(); // dark status LED
@@ -325,18 +310,13 @@ static void hw_x4053_mute_delay(void) {
 }
 
 // constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
-// see the comment below hw_output_pins_intact() for why.
-#if defined(BYPASS_X4053_DIRECT_DRIVE) // TMUX4053, direct-drive
-static void hw_x4053_ctl1_high(void) { LATA |=  (uint8_t)(1U << CD4053_CTL1); }
-static void hw_x4053_ctl1_low(void)  { LATA &= (uint8_t)~(1U << CD4053_CTL1); }
-static void hw_x4053_ctl2_high(void) { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
-static void hw_x4053_ctl2_low(void)  { LATA &= (uint8_t)~(1U << CD4053_CTL2); }
-#else                                  // CD4053 + MOSFET inverter (default)
+// see the comment below hw_output_pins_intact() for why.  Unified drive polarity
+// for both the CD4053 and the pin-compatible TMUX4053 board (see the drive-
+// polarity comment above the CD4053 SIMPLE block).
 static void hw_x4053_ctl1_high(void) { LATA &= (uint8_t)~(1U << CD4053_CTL1); }
 static void hw_x4053_ctl1_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL1); }
 static void hw_x4053_ctl2_high(void) { LATA &= (uint8_t)~(1U << CD4053_CTL2); }
 static void hw_x4053_ctl2_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
-#endif
 
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
@@ -401,7 +381,7 @@ static uint8_t hw_is_sanity_check_failed(void) {
 }
 
 // constant-bit functions, not a parametric hw_pin_set_high/low(pin) helper:
-// see the comment below hw_output_pins_intact() for why. No polarity
+// see the comment below hw_output_pins_intact() for why.  No polarity
 // indirection needed here (the relay coils are not an x4053 control input).
 static void hw_relay_reset_pin_set_high(void) { LATA |=  (uint8_t)(1U << RELAY_RESET_PIN); }
 static void hw_relay_reset_pin_set_low(void)  { LATA &= (uint8_t)~(1U << RELAY_RESET_PIN); }

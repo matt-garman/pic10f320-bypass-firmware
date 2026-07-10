@@ -71,14 +71,14 @@ MUTATIONS=(
 # test-actuation's settled-LATA check (it was gpsim-only before that check existed).
 "bypass_mcu_pic10f320.c	s@LATA |=  (uint8_t)(1U << LED_PIN)@LATA \&= (uint8_t)~(1U << LED_PIN)@	test-equiv	FW set_engaged LED output inverted (RA0 stays dark when ENGAGED)"
 "bypass_mcu_pic10f320.c	s@hw_x4053_ctl_low();@hw_x4053_ctl_high();@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control routed the wrong way (set_engaged drives the bypass level); settled ENGAGED LATA 0x1 not 0x3 (RA0 unaffected, so equiv/gpsim-RA0 miss it; killed by the actuation settled-LATA check)"
-# --- firmware: analog-switch control-pin DRIVE POLARITY (CD4053 vs TMUX4053) -------
-# The tmux4053-* variants build the same driver source with the direct-drive
-# polarity (-DBYPASS_X4053_DIRECT_DRIVE), inverting the control-pin LATA bits.
-# Breaking the direct-drive branch so it matches the inverting (CD4053) levels
-# makes the tmux build settle its CONTROL pins to the wrong state (BYPASS 0x0 not
-# 0x2) while RA0/the LED stay correct -- invisible to equiv (RA0 only), killed by
-# test-actuation's per-tick settled-LATA check for the tmux variant.
-"bypass_mcu_pic10f320.c	s@static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }@static void hw_x4053_ctl_high(void) { LATA \&= (uint8_t)~(1U << CD4053_PIN); }@	PIC_VARIANT=tmux4053-simple test-actuation	FW TMUX4053 direct-drive polarity broken (ctl_high drives low like the CD4053 inverter); tmux bypass control pin settles wrong (RA1 low not high)"
+# --- firmware: analog-switch control-pin DRIVE POLARITY (CD4053 / TMUX4053) --------
+# The cd4053-* images drive their control pins with one unified polarity, correct
+# for BOTH the CD4053 and the pin-compatible TMUX4053 board (BYPASS = MCU pin low,
+# ENGAGE = high). Inverting that drive at the ctl_high definition makes the build
+# settle its CONTROL pins to the wrong state (BYPASS 0x2 not 0x0) while RA0/the LED
+# stay correct -- invisible to equiv (RA0 only), killed by test-actuation's per-tick
+# settled-LATA check.
+"bypass_mcu_pic10f320.c	s@static void hw_x4053_ctl_high(void) { LATA \&= (uint8_t)~(1U << CD4053_PIN); }@static void hw_x4053_ctl_high(void) { LATA |=  (uint8_t)(1U << CD4053_PIN); }@	PIC_VARIANT=cd4053-simple test-actuation	FW CD4053 control-pin drive polarity inverted at the definition (ctl_high drives the pin HIGH not LOW); bypass control pin settles wrong (BYPASS 0x2 not 0x0), RA0 unaffected so equiv/gpsim-RA0 miss it"
 "bypass_mcu_pic10f320.c	s@(0U == (PORTA & (uint8_t)(1U << FOOTSW_PIN)))@(0U != (PORTA \& (uint8_t)(1U << FOOTSW_PIN)))@	test-equiv	FW footswitch read polarity inverted (toggles on release, not press)"
 # --- firmware: 1 ms tick CADENCE (the one mutant only gpsim can kill) ---------------
 # Removing the TMR2IF clear makes the flag latch set, so the `while (TMR2IF==0)` poll
@@ -136,8 +136,7 @@ done
 # unmutated tree also passes test-actuation for those (it is pure host gcc -- always
 # available, never skipped). Unquoted on purpose: the "PIC_VARIANT=... target" form
 # word-splits into separate make arguments.
-for vt in "PIC_VARIANT=tq2-relay test-actuation" "PIC_VARIANT=cd4053-mute test-actuation" \
-          "PIC_VARIANT=tmux4053-simple test-actuation"; do
+for vt in "PIC_VARIANT=tq2-relay test-actuation" "PIC_VARIANT=cd4053-mute test-actuation"; do
     if make -C "$BASE" $vt >/dev/null 2>&1; then
         echo "baseline $vt: PASS"
     else

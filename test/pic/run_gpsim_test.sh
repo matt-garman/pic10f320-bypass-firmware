@@ -12,18 +12,17 @@
 #   <hexfile>                 a built PIC HEX (build_pic/bypass_mcu_pic10f320.hex)
 #   expected_engaged_lata_hex optional: the FULL LATA value when ENGAGED for this
 #                             variant (cd4053-simple=0x3, cd4053-mute=0x7,
-#                             tmux4053-*=0x1, relay=0x1). When given, it is
+#                             relay=0x1). When given, it is
 #                             asserted in addition to the universal LED-bit checks;
 #                             when omitted, only the LED bit (RA0) and footswitch
 #                             (RA3) behaviour is asserted.
 #   expected_bypass_lata_hex  optional: the FULL LATA value in BYPASS for this
-#                             variant. Defaults to 0x0 -- correct for the inverting
-#                             (CD4053 / relay) variants, whose control pins settle
-#                             low in bypass -- but the direct-drive (TMUX4053)
-#                             variants drive their control pins HIGH in bypass, so
-#                             this is passed explicitly there (tmux4053-simple=0x2,
-#                             tmux4053-mute=0x6). The LED (RA0) is off in bypass for
-#                             every variant regardless.
+#                             variant. Defaults to 0x0, which is correct for every
+#                             variant: the cd4053-* control pins settle LOW in
+#                             bypass (one unified polarity, correct for both the
+#                             CD4053 and the pin-compatible TMUX4053 board) and the
+#                             relay coils settle low. The LED (RA0) is off in bypass
+#                             for every variant.
 #
 # Exit status: 0 = all checks passed (or gpsim not installed -> skipped); 1 = a
 # check failed or gpsim/the HEX could not be run.
@@ -35,8 +34,8 @@ set -u
 
 HEX="${1:?usage: run_gpsim_test.sh <hexfile> [expected_engaged_lata_hex] [expected_bypass_lata_hex]}"
 EXP_ENGAGED_LATA="${2:-}"
-# BYPASS settled LATA. Defaults to 0x0 (inverting CD4053 / relay variants); the
-# direct-drive TMUX4053 variants pass their non-zero bypass pattern (RA1[/RA2] high).
+# BYPASS settled LATA. Defaults to 0x0 -- correct for every variant (cd4053-*
+# control pins settle low in bypass; relay coils settle low).
 EXP_BYPASS_LATA="${3:-0x0}"
 
 GPSIM="${GPSIM:-gpsim}"
@@ -106,9 +105,8 @@ note "BYPASS_AGAIN" "porta=$ba_porta lata=$ba_lata"
 # 1. Power-on default is BYPASS: LED (RA0) off, footswitch (RA3) released. Assert
 #    the FULL LATA == EXP_BYPASS_LATA, the symmetric counterpart to the ENGAGED
 #    full-LATA check below: a control pin in the wrong bypass state is caught here,
-#    not just the LED bit. The inverting variants settle bypass to 0x0; the
-#    direct-drive (TMUX4053) variants drive their control pins high in bypass
-#    (tmux4053-simple 0x2, tmux4053-mute 0x6), passed in via EXP_BYPASS_LATA.
+#    not just the LED bit. Every variant settles bypass to 0x0 (cd4053-* control
+#    pins low -- the unified polarity's pin-low fail-safe state; relay coils low).
 [ "$(bit "$ib_lata" 0x1)"  = 0 ] && pass "INIT: LED off (bypass)"          || fail "INIT: LED (RA0) should be off, lata=$ib_lata"
 [ $(( ib_lata )) -eq $(( EXP_BYPASS_LATA )) ] && pass "INIT: full LATA == $EXP_BYPASS_LATA (bypass control pins)" || fail "INIT: LATA should be $EXP_BYPASS_LATA in bypass, got $ib_lata"
 [ "$(bit "$ib_porta" 0x8)" = 1 ] && pass "INIT: footswitch released (RA3=1)" || fail "INIT: RA3 should read released (high), porta=$ib_porta"

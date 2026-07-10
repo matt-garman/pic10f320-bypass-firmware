@@ -27,17 +27,15 @@
 //   this is purely about the variant control pins DURING the blocking pulse.
 //
 // PIN MAP (bypass_mcu_pic10f320.c): RA0=LED=0x1, RA1=0x2, RA2=0x4. The analog-
-// switch variants build the same driver source in two control-pin drive
-// polarities (inverting CD4053 vs direct-drive TMUX4053, -DBYPASS_X4053_DIRECT_
-// DRIVE), which flips the control-pin LATA bits; the LED (RA0) and relay stage
-// are unchanged. Patterns below are the inverting (cd4053-*) values; the tmux4053-*
-// siblings invert the control bits (see the per-variant #if blocks).
+// switch variants (cd4053-*) drive their control pins with a single unified
+// polarity that is correct for both the CD4053 and the pin-compatible TMUX4053
+// board; the LED (RA0) and relay stage are unchanged.
 //   cd4053-mute : CTL1=RA1, CTL2=RA2. The mute drops the not-yet-switched control,
 //                 waits, then switches. engage mid: LED|CTL2 = 0x5; bypass mid: CTL2 = 0x4.
 //   tq2-relay   : RESET=RA1, SET=RA2. engage pulses SET (LED|SET = 0x5); bypass
 //                 pulses RESET (RESET = 0x2). Coils settle low, so the settled
 //                 ENGAGED LATA is 0x1 -- all gpsim/equiv can confirm.
-//   cd4053-simple: no blocking actuation -> zero snapshots (both polarities).
+//   cd4053-simple: no blocking actuation -> zero snapshots.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -52,32 +50,19 @@ extern uint8_t  fw_tick_lata(int i);   // full SETTLED LATA at end of tick i
 
 // Per-variant SETTLED LATA pattern (full byte, sampled at end-of-tick). These
 // match the gpsim functional test's PIC_ENGAGED_LATA / PIC_BYPASS_LATA. The
-// analog-switch variants come in two control-pin drive polarities: the inverting
-// CD4053 (MOSFET inverter; control pins settle LOW in bypass) and the direct-drive
-// TMUX4053 (-DBYPASS_X4053_DIRECT_DRIVE; the SAME driver source emits the opposite
-// control-pin levels, so the control pins settle HIGH in bypass). The LED (RA0) is
-// on when ENGAGED / off in BYPASS for every variant regardless of polarity.
-//   cd4053-simple   : ENGAGED 0x3 (LED+RA1)  BYPASS 0x0
-//   tmux4053-simple : ENGAGED 0x1 (LED only) BYPASS 0x2 (RA1 high)
-//   cd4053-mute     : ENGAGED 0x7 (LED+RA1+RA2) BYPASS 0x0
-//   tmux4053-mute   : ENGAGED 0x1 (LED only) BYPASS 0x6 (RA1+RA2 high)
-//   tq2-relay       : ENGAGED 0x1 (LED only; coils pulse, settle low) BYPASS 0x0
+// analog-switch variants (cd4053-*) drive their control pins with one unified
+// polarity: BYPASS = MCU pin low (control pins settle LOW in bypass, so BYPASS is
+// 0x0), ENGAGE = MCU pin high -- correct for both the CD4053 and the pin-compatible
+// TMUX4053 board. The LED (RA0) is on when ENGAGED / off in BYPASS for every variant.
+//   cd4053-simple : ENGAGED 0x3 (LED+RA1)      BYPASS 0x0
+//   cd4053-mute   : ENGAGED 0x7 (LED+RA1+RA2)   BYPASS 0x0
+//   tq2-relay     : ENGAGED 0x1 (LED only; coils pulse, settle low) BYPASS 0x0
 #if defined(OUTPUT_CD4053_SIMPLE)
-#  if defined(BYPASS_X4053_DIRECT_DRIVE)
-#    define EXP_ENGAGED_LATA 0x1u   // LED(RA0); TMUX(RA1) driven low when engaged
-#    define EXP_BYPASS_LATA  0x2u   // TMUX(RA1) driven high in bypass; LED off
-#  else
-#    define EXP_ENGAGED_LATA 0x3u   // LED(RA0) + CD4053(RA1); RA2 spare low
-#    define EXP_BYPASS_LATA  0x0u
-#  endif
+#  define EXP_ENGAGED_LATA 0x3u   // LED(RA0) + CD4053(RA1); RA2 spare low
+#  define EXP_BYPASS_LATA  0x0u
 #elif defined(OUTPUT_CD4053_WITH_MUTE)
-#  if defined(BYPASS_X4053_DIRECT_DRIVE)
-#    define EXP_ENGAGED_LATA 0x1u   // LED(RA0); CTL1/CTL2 driven low when engaged
-#    define EXP_BYPASS_LATA  0x6u   // CTL1(RA1) + CTL2(RA2) driven high in bypass
-#  else
-#    define EXP_ENGAGED_LATA 0x7u   // LED(RA0) + CTL1(RA1) + CTL2(RA2)
-#    define EXP_BYPASS_LATA  0x0u
-#  endif
+#  define EXP_ENGAGED_LATA 0x7u   // LED(RA0) + CTL1(RA1) + CTL2(RA2)
+#  define EXP_BYPASS_LATA  0x0u
 #elif defined(OUTPUT_TQ2_RELAY)
 #  define EXP_ENGAGED_LATA 0x1u   // LED(RA0); both coils settle low
 #  define EXP_BYPASS_LATA  0x0u
@@ -137,11 +122,7 @@ int main(void) {
     }
 
 #if defined(OUTPUT_CD4053_SIMPLE)
-#  if defined(BYPASS_X4053_DIRECT_DRIVE)
-    printf("actuation-sequence (tmux4053-simple): expect no blocking actuation\n");
-#  else
     printf("actuation-sequence (cd4053-simple): expect no blocking actuation\n");
-#  endif
     CHECK(count == 0,
           "simple analog-switch variant must not call __delay_ms (no blocking "
           "actuation), got %d snapshot(s)",
@@ -150,19 +131,12 @@ int main(void) {
 #elif defined(OUTPUT_CD4053_WITH_MUTE)
     // Mid-mute snapshot pattern (sampled while the mute is asserted, before the
     // un-mute write). The mute drops the not-yet-switched control to the level the
-    // switch hears as muted; at the MCU pin that level flips with the drive
-    // polarity. Inverting CD4053 / direct-drive TMUX4053 mirror each other:
-    //   engage mid : CD4053 0x5 (LED+CTL2 high, CTL1 low)  TMUX 0x3 (LED+CTL1 high, CTL2 low)
-    //   bypass mid : CD4053 0x4 (CTL2 high, CTL1 low, LED off) TMUX 0x2 (CTL1 high, CTL2 low)
-#  if defined(BYPASS_X4053_DIRECT_DRIVE)
-#    define EXP_ENGAGE_MID 0x3u
-#    define EXP_BYPASS_MID 0x2u
-    printf("actuation-sequence (tmux4053-mute): mid-mute LATA snapshots\n");
-#  else
-#    define EXP_ENGAGE_MID 0x5u
-#    define EXP_BYPASS_MID 0x4u
+    // switch hears as muted; at the MCU pin (unified polarity):
+    //   engage mid : 0x5 (LED+CTL2 high, CTL1 low)
+    //   bypass mid : 0x4 (CTL2 high, CTL1 low, LED off)
+#  define EXP_ENGAGE_MID 0x5u
+#  define EXP_BYPASS_MID 0x4u
     printf("actuation-sequence (cd4053-mute): mid-mute LATA snapshots\n");
-#  endif
     // Snapshot order: [0] power-on init-bypass, [1] engage, [2] bypass.
     CHECK(count == 3,
           "expected 3 actuations (init-bypass, engage, bypass), got %d", count);

@@ -76,7 +76,7 @@ static void test_predicates(void) {
     CHECK(fwp_sanity_failed() != 0, "lost CD4053 output must flag sanity failure");
 
     // RA2 flipped to input -- SEU on TRISA bit 2.  RA2 is load-bearing for
-    // mute/relay variants (CTL2/SET coil); for cd4053-simple/tmux4053-simple it
+    // mute/relay variants (CTL2/SET coil); for cd4053-simple it
     // is configured as an output but not logically driven, so the firmware does
     // not expect it as an output and flipping it to input must NOT be a reset.
     // The variant sweep covers both cases.
@@ -128,8 +128,8 @@ static void test_fault_injection(void) {
     expect_reset(FWI_PULLUP_GLOBAL_OFF,    "OPTION_REG nWPUEN=1 (global pull-up off)");
     expect_reset(FWI_LED_PIN_TO_INPUT,     "TRISA RA0 (LED) flipped to input");
     expect_reset(FWI_CD4053_PIN_TO_INPUT,  "TRISA RA1 (CD4053/RESET) flipped to input");
-    // RA2 is only load-bearing for variants that use it (cd4053-mute / tmux4053-mute
-    // / tq2-relay); for cd4053-simple/tmux4053-simple it is a spare output and the
+    // RA2 is only load-bearing for variants that use it (cd4053-mute /
+    // tq2-relay); for cd4053-simple it is a spare output and the
     // sanity check does not include it, so flipping it to input must NOT force a
     // reset. The variant sweep covers both cases.
 #if defined(OUTPUT_CD4053_SIMPLE)

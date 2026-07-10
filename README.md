@@ -5,13 +5,13 @@
 Scaled-down, single-file bypass/debounce firmware for the
 **PIC10F320**, supporting all three of the parent project's output
 stages — **analog-switch simple**, **analog-switch with mute**, and
-the **TQ2 latching relay** — in **five build variants**: each
-analog-switch stage comes in two control-pin drive polarities, an
-inverting **CD4053** (driven through a MOSFET inverter at 9–18 V) and
-a direct-drive **TMUX4053** (driven at logic level), giving
-**cd4053-simple / tmux4053-simple / cd4053-mute / tmux4053-mute /
-tq2-relay**.  The output scheme is selected at compile time with one
-`OUTPUT_*` macro plus an optional polarity flag (see the Build
+the **TQ2 latching relay** — in **three build variants**:
+**cd4053-simple / cd4053-mute / tq2-relay**.  The two analog-switch
+variants drive their control pins with a single, unified polarity that
+is correct for both an inverting **CD4053** (driven through a MOSFET
+inverter at 9–18 V) and the pin-compatible logic-level **TMUX4053**
+(driven directly) — one image serves both boards.  The output scheme is
+selected at compile time with one `OUTPUT_*` macro (see the Build
 section). It responds to a footswitch, debounces it, toggles effect
 bypass/engage, and drives a status LED.
 
@@ -43,10 +43,8 @@ This is intentionally a separate child project of
   behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output stage (all fit the 256-word budget):
   **cd4053-simple 217 (84.8%)**, **cd4053-with-mute 240 (93.8%)**,
-  **tq2-relay 241 (94.1%)**; 10 / 64 bytes RAM. The direct-drive
-  **tmux4053-\*** variants build the same driver source with the
-  control-pin polarity flipped — only `bsf`↔`bcf` (both single-word)
-  swap — so each matches its `cd4053-*` sibling's word count.
+  **tq2-relay 241 (94.1%)**; 10 / 64 bytes RAM. Each `cd4053-*` image
+  drives both the CD4053 and the pin-compatible TMUX4053 board.
 
 **Validation:** because the firmware inlines its logic, it is
 validated in layers (see `test/README.md`): the parent's pure
@@ -63,11 +61,9 @@ The per-variant control pins (RA1/RA2) are pinned by a host
 `LATA` at every tick; so even cd4053-simple's lone control pin, which
 has no blocking pulse for a snapshot to catch, is verified on the host;
 plus the mute/relay drivers' *mid-actuation* sequencing and pulse width
-that neither the RA0 trace nor a settled snapshot can see. Because the
-direct-drive (TMUX4053) variants *invert* those control pins — so
-BYPASS no longer settles to `0x0` — both the host actuation check and
-the gpsim test assert each variant's full BYPASS *and* ENGAGED
-control-pin pattern, catching a wrong drive polarity. The real HEX is
+that neither the RA0 trace nor a settled snapshot can see. Both the host
+actuation check and the gpsim test assert each variant's full BYPASS
+*and* ENGAGED control-pin pattern, catching a wrong drive polarity. The real HEX is
 independently re-checked on a simulated core in gpsim; and
 the real firmware's **defensive layer** (the SEU/EMI sanity gate and
 watchdog-reset path, which valid stimulus never reaches) is
@@ -78,7 +74,7 @@ watchdog reset. Static analysis
 (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
 verification, mutation testing, and model + firmware coverage gates
 round it out. `make test` runs all of it for the selected variant;
-`make test-variants` sweeps all five. A long-run `make test-soak`
+`make test-variants` sweeps all three. A long-run `make test-soak`
 (libgpsim), silicon-level fault injection (`make test-fault-gpsim`), and
 an optional KLEE pass (`make test-symbolic-klee`) are available as
 standalone targets.
@@ -112,17 +108,21 @@ The debounce algorithm here is a **manual instantiation** of the parent's
 verified pure core — byte-for-byte identical arithmetic and state transitions,
 merely re-packaged (inlined, global-mutating) to fit flash. The three output
 drivers are likewise instantiations of the parent's per-variant output stages
-(`bypass_output_*.c`), inlined into the firmware's `#if defined(OUTPUT_*)` blocks;
-the two analog-switch stages also carry the parent's CD4053-vs-TMUX4053 control-pin
-drive polarity (`BYPASS_X4053_DIRECT_DRIVE`), which is what turns three stages into
-five build variants.
+(`bypass_output_*.c`), inlined into the firmware's `#if defined(OUTPUT_*)` blocks.
+The two analog-switch stages drive their control pins with a single unified
+polarity — BYPASS = MCU pin low (the pulled-down, MCU-absent fail-safe state),
+ENGAGE = high — that is correct for both the CD4053 (MOSFET-inverter drive) and
+the pin-compatible logic-level TMUX4053, because the CD4053's inversion and the
+TMUX4053 board's swapped analog throws cancel; one image serves both boards.
 
 - **Derived from:** `mcu-bypass-firmware` @ commit
-  `bf6a6c1` (`bf6a6c15071bdc56bc96de740eec83e8a87cd78b`) — the same commit the
-  vendored reference model is pinned to (see `test/model/README.md`), and the one
-  that introduced the CD4053-vs-TMUX4053 control-pin polarity
-  (`bypass_output_x4053_polarity.h`) the five build variants rely on. (The earlier
-  `7384215` predates that polarity split and is no longer the baseline.)
+  `bf6a6c1` (`bf6a6c15071bdc56bc96de740eec83e8a87cd78b`) — the commit the
+  vendored reference model is pinned to (see `test/model/README.md`). The
+  analog-switch control-pin polarity now follows the parent's later correction,
+  which unified the drive for both boards and removed the earlier
+  `BYPASS_X4053_DIRECT_DRIVE` split (`bypass_output_x4053_polarity.h`) as a latent
+  polarity bug; the vendored debounce model is unaffected and stays pinned to
+  `bf6a6c1`.
 - **Correctness is inherited by derivation** from that core's host + formal
   verification; it is *not* independently re-proven in this repository.
 - This is a **frozen one-off**. It is *not* automatically kept in sync with
@@ -143,7 +143,7 @@ shared at the source level:
 | State machine             | `debounce_step()` in `bypass_pure.c`       | inlined `switch` in `main()`     |
 | Power-on init             | `debounce_init_context()` in `bypass_pure.c` | inlined in `init()`            |
 | Output stages             | `bypass_output_{cd4053_simple,cd4053_with_mute,tq2_l2_5v_relay}.c` | inlined `#if defined(OUTPUT_*)` blocks |
-| Analog-switch polarity    | `bypass_output_x4053_polarity.h` (`BYPASS_X4053_DIRECT_DRIVE`) | inlined `hw_x4053_ctl_high/low` macros |
+| Analog-switch polarity    | unified drive in `bypass_output_{cd4053_simple,cd4053_with_mute}.c` (BYPASS = pin low, ENGAGE = high) | inlined `hw_x4053_ctl_high/low` functions |
 
 The pin map (RA3 footswitch, RA0 LED, RA1/RA2 control) and the CONFIG word are
 PIC-local and are *not* shared with the parent.
@@ -164,16 +164,15 @@ make clean    # remove the build directory
 Select the output variant with `PIC_VARIANT` (default `cd4053-simple`):
 
 ```sh
-make PIC_VARIANT=cd4053-simple    # LED(RA0) + CD4053(RA1), inverting (MOSFET) drive
-make PIC_VARIANT=tmux4053-simple  # as above but direct-drive TMUX4053 (control pins inverted)
+make PIC_VARIANT=cd4053-simple    # LED(RA0) + analog-switch control(RA1)
 make PIC_VARIANT=cd4053-mute      # LED(RA0) + CTL1(RA1) + CTL2(RA2), pre-switch mute
-make PIC_VARIANT=tmux4053-mute    # as above but direct-drive TMUX4053 (control pins inverted)
 make PIC_VARIANT=tq2-relay        # LED(RA0) + RESET(RA1) + SET(RA2), latching relay
 ```
 
-The `tmux4053-*` variants add `-DBYPASS_X4053_DIRECT_DRIVE`; they share their
-`cd4053-*` sibling's driver source and switching logic, differing only in the
-analog-switch control-pin drive polarity.
+The two `cd4053-*` images drive their analog-switch control pins with a single
+unified polarity (BYPASS = pin low, ENGAGE = high) that is correct for both a
+CD4053 (driven through a MOSFET inverter at 9–18 V) and the pin-compatible
+logic-level TMUX4053 — one image serves both boards.
 
 Override the toolchain paths on the command line if your install differs:
 

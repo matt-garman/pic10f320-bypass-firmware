@@ -12,10 +12,9 @@
 #   verify -> make test-variants   (build + static analysis [cppcheck + MISRA]
 #                                   + host/formal + firmware<->model equivalence
 #                                   + actuation + fault-injection + CONFIG word
-#                                   + gpsim + coverage gates -- for ALL FIVE
+#                                   + gpsim + coverage gates -- for ALL THREE
 #                                   output variants: cd4053-simple,
-#                                   tmux4053-simple, cd4053-mute, tmux4053-mute,
-#                                   tq2-relay)
+#                                   cd4053-mute, tq2-relay)
 #   stress -> make test-mutation   (mutation-kill suite; gated OFF pull
 #                                   requests in CI -- push/schedule/dispatch
 #                                   only, and `needs: verify`)

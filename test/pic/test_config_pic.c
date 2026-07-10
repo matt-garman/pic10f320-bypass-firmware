@@ -29,7 +29,7 @@
 // USAGE
 //   test_config_pic <file.hex> [<file.hex> ...]
 // The Makefile's `test-config` target builds the HEX (via `make all`) and runs
-// this against the built HEX. All five output variants are compiled from the
+// this against the built HEX. All three output variants are compiled from the
 // same source with the same #pragma config block, so every variant's CONFIG
 // word is identical; passing multiple HEXes also catches any accidental
 // divergence between variants.

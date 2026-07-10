@@ -41,27 +41,23 @@ git tag, so you can additionally verify the maintainer vouched for the bytes.
 
 ## Which image do I want?
 
-Images are named `bypass_mcu_<variant>_pic10f320.hex`. There are **five**: the
-three output stages below, with each analog-switch stage built in two control-pin
-drive polarities — an inverting **CD4053** (driven through a MOSFET inverter, as
-used for a 9–18 V switch rail) and a direct-drive **TMUX4053** (driven at logic
-level):
+Images are named `bypass_mcu_<variant>_pic10f320.hex`. There are **three**, one
+per output stage:
 
-| variant           | switching hardware                                          |
-|-------------------|-------------------------------------------------------------|
-| `cd4053-simple`   | CD4053 analog switch, simple — 2 sections (inverting drive) |
-| `tmux4053-simple` | TMUX4053 analog switch, simple — 2 sections (direct drive)  |
-| `cd4053-mute`     | CD4053 with mute-before-switch — 3 sections (inverting)     |
-| `tmux4053-mute`   | TMUX4053 with mute-before-switch — 3 sections (direct)      |
-| `tq2-relay`       | Panasonic TQ2-L2-5V latching relay                          |
+| variant         | switching hardware                                     |
+|-----------------|--------------------------------------------------------|
+| `cd4053-simple` | CD4053 / TMUX4053 analog switch, simple — 2 sections   |
+| `cd4053-mute`   | CD4053 / TMUX4053 with mute-before-switch — 3 sections |
+| `tq2-relay`     | Panasonic TQ2-L2-5V latching relay                     |
 
-The `cd4053-*` and `tmux4053-*` images differ only in control-pin drive polarity:
-pick **CD4053** when the analog switch is driven through a MOSFET inverter, or
-**TMUX4053** when it is driven directly at logic level. All five target the
-**PIC10F320** on its internal oscillator (INTOSC); the core is clocked at
-**2 MHz** as of v0.9.3 (v0.9.0–v0.9.2 ran at 16 MHz). The per-release
-`MANIFEST.md` records each image's core clock, flash-word usage, and exact
-flashing command.
+Each `cd4053-*` image drives its analog-switch control pins with a single unified
+polarity that is correct for **both** an inverting **CD4053** (driven through a
+MOSFET inverter, as used for a 9–18 V switch rail) and the pin-compatible
+logic-level **TMUX4053** (driven directly at logic level) — one image serves both
+boards. All three target the **PIC10F320** on its internal oscillator (INTOSC);
+the core is clocked at **2 MHz** as of v0.9.3 (v0.9.0–v0.9.2 ran at 16 MHz). The
+per-release `MANIFEST.md` records each image's core clock, flash-word usage, and
+exact flashing command.
 
 ## Verify a download
 
@@ -93,9 +89,7 @@ git checkout vX.Y.Z
 # install the pinned toolchain (see TOOLCHAIN.adoc), then build every variant:
 make clean
 make all PIC_VARIANT=cd4053-simple
-make all PIC_VARIANT=tmux4053-simple
 make all PIC_VARIANT=cd4053-mute
-make all PIC_VARIANT=tmux4053-mute
 make all PIC_VARIANT=tq2-relay
 sha256sum -c release/vX.Y.Z/SHA256SUMS
 ```

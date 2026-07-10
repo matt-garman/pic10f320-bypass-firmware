@@ -13,8 +13,8 @@
 # HOW IT IS RUN (see the wrapper / `make test-gpsim`)
 #   gpsim -i -pp10f320 <variant>.hex -c test/pic/power_on_pressed.stc
 #   Variant-agnostic: only RA0 (LED) and RA3 (footswitch) are asserted, and those
-#   are identical across every output variant (the analog-switch drive polarity
-#   flips only the RA1/RA2 control pins, never RA0/RA3). Running it per variant also
+#   are identical across every output variant (the per-variant output stage drives
+#   only the RA1/RA2 control pins, never RA0/RA3). Running it per variant also
 #   confirms each variant's init-time blocking actuation (the relay/mute ~12 ms
 #   bypass pulse) does not perturb the held-at-boot path.
 #

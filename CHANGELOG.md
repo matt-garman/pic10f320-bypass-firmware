@@ -13,6 +13,27 @@ file is the human-readable summary of *what changed*.
 
 ## [Unreleased]
 
+### Fixed
+- **Analog-switch control-pin drive polarity (CD4053 / TMUX4053).** The
+  `-DBYPASS_X4053_DIRECT_DRIVE` "direct-drive" polarity used by the former
+  `tmux4053-simple` / `tmux4053-mute` variants inverted the analog-switch control
+  pins relative to the CD4053 default. That was a latent polarity bug: it defeated
+  the pin-low fail-safe (with the control-pin pull-downs, an MCU-absent board would
+  settle its control pins HIGH and power up **engaged** instead of bypassed), and
+  it drove the switch the wrong way on a TMUX4053 board. The required MCU-pin
+  polarity is in fact **identical** for both boards — the CD4053's MOSFET inversion
+  and the TMUX4053 board's deliberately-swapped analog throws cancel — so one image
+  drives both. Mirrors the parent project's fix.
+
+### Changed
+- Unified the two analog-switch variants onto a single control-pin polarity
+  (BYPASS = MCU pin low, ENGAGE = high) and **removed** the
+  `BYPASS_X4053_DIRECT_DRIVE` flag and the `tmux4053-simple` / `tmux4053-mute`
+  build variants. The output scheme is now **three** variants — `cd4053-simple`,
+  `cd4053-mute`, `tq2-relay` — with each `cd4053-*` image serving both the CD4053
+  and the pin-compatible TMUX4053 board. Updated the actuation, gpsim, and mutation
+  tests, the Makefile variant machinery, and the documentation accordingly.
+
 ## [0.9.3] - 2026-07-06
 
 ### Added

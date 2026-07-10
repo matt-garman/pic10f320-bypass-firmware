@@ -9,8 +9,8 @@ name: CI
 # 0.32.x, cppcheck 2.13, cbmc, gcc 13) as closely as the distro packages allow.
 #
 # Most of the matrix lives inside the Makefile: a single `make test-variants`
-# already exercises all five output variants (cd4053-simple, tmux4053-simple,
-# cd4053-mute, tmux4053-mute, tq2-relay), each through the whole `make test` gate
+# already exercises all three output variants (cd4053-simple, cd4053-mute,
+# tq2-relay), each through the whole `make test` gate
 # -- static analysis
 # (cppcheck + MISRA-C:2012), the reference-model host/formal suite (unit + property
 # + exhaustive state-space + symbolic + CBMC), the firmware<->model equivalence
