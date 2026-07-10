@@ -39,6 +39,20 @@ file is the human-readable summary of *what changed*.
   requires every mutant to run unless an explicitly partial local mode is
   requested; and release CI now requires exact equality among the Makefile's
   expected image set, committed HEX files, `SHA256SUMS` entries, and fresh builds.
+- Promoted real-HEX libgpsim fault injection and firmware/model lock-step from
+  release-only checks into regular push/pull-request CI for all three variants.
+  The new `test-target-variants` aggregate requires explicit PASS markers, so
+  missing development headers, symbols, or partial/skip-clean runs fail closed.
+
+### Added
+- Built-HEX GPIO transition/timing validation (`test-io-gpsim`): requires exact
+  `TRISA=0x08`, checks physical `PORTA` follows `LATA`, asserts complete legal
+  startup/engage/bypass transition traces for every output stage, prohibits both
+  relay coils being energized together, and measures the 5 ms mute and 12 ms
+  relay pulses from XC8-generated simulator instruction cycles.
+- Simulated-core TRISA fault coverage: verifies startup direction configuration,
+  injects RA0/RA1 direction faults for every variant, and checks RA2 as either a
+  required output (mute/relay) or the simple variant's explicit negative control.
 
 ## [0.9.3] - 2026-07-06
 

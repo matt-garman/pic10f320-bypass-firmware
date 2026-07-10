@@ -16,14 +16,15 @@ name: CI
 # + exhaustive state-space + symbolic + CBMC), the firmware<->model equivalence
 # trace, the firmware fault-injection harness, the CONFIG-word check, the gpsim
 # register-level functional test, and the model + firmware coverage gates. The
-# verify job wraps that; the stress job runs the slower mutation suite off the
-# PR hot path.
+# verify job also runs the fail-closed libgpsim target aggregate (fault recovery,
+# firmware/model lock-step, and GPIO transition/pulse timing) for every variant;
+# the stress job runs the slower mutation suite off the PR hot path.
 #
 # XC8 and the PIC10-12Fxxx DFP are not in apt; they are fetched from Microchip
 # (the free tier needs no key to compile) and installed to the paths the Makefile
 # defaults to (PIC_CC / PIC_DFP). gpsim, cppcheck, cbmc, gcc and python3 are apt
-# packages. The libgpsim soak (test-soak) needs gpsim-dev + libglib2.0-dev and is
-# a standalone target -- it is exercised by the release pipeline, not here.
+# packages. gpsim-dev + libglib2.0-dev provide the libgpsim headers used by the
+# regular target fault, lock-step, and I/O gate. The long soak remains release-only.
 
 on:
   push:
@@ -51,7 +52,7 @@ env:
 
 jobs:
   # -------------------------------------------------------------------------
-  # Gating job: the full validation suite across all five output variants.
+  # Gating job: the full validation suite across all three output variants.
   # This is the "build passing" badge. `make test-variants` runs `make test`
   # (analyze + host/formal + equiv + actuation + fault + CONFIG word + gpsim + coverage)
   # once per variant.
@@ -66,7 +67,7 @@ jobs:
   # microchip.com / `./xc8.run --help` (both change per release). The DFP
   # packs.download.microchip.com/<pack>.atpack URL scheme is stable.
   verify:
-    name: verify (make test-variants)
+    name: verify (source + target gates)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +76,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            make gcc gpsim cppcheck cbmc python3 unzip wget
+            make gcc g++ gpsim gpsim-dev libglib2.0-dev cppcheck cbmc python3 unzip wget
 
       - name: Restore cached XC8 + DFP
         id: cache-xc8
@@ -109,9 +110,13 @@ jobs:
           dev="${XC8_DFP_ROOT}/xc8/pic/include/proc/pic10f320.h"
           test -x "${xc8}" || { echo "::error::XC8 missing: ${xc8}"; exit 1; }
           test -f "${dev}" || { echo "::error::DFP missing: ${dev}"; exit 1; }
-          for t in gpsim cppcheck cbmc gcc python3; do
+          for t in gpsim cppcheck cbmc gcc c++ python3; do
             command -v "$t" >/dev/null || { echo "::error::no $t"; exit 1; }
           done
+          test -f /usr/include/gpsim/sim_context.h \
+            || { echo "::error::gpsim-dev headers missing"; exit 1; }
+          pkg-config --exists glib-2.0 \
+            || { echo "::error::libglib2.0-dev missing"; exit 1; }
 
       # Save only after the assert passed, so a partial install is never cached.
       - name: Save XC8 + DFP cache
@@ -133,6 +138,12 @@ jobs:
       - name: Full validation suite (all variants)
         run: |
           make test-variants \
+            PIC_CC="${XC8_DIR}/bin/xc8-cc" \
+            PIC_DFP="${XC8_DFP_ROOT}/xc8"
+
+      - name: Target fault, lock-step, and I/O gate (all variants)
+        run: |
+          make test-target-variants \
             PIC_CC="${XC8_DIR}/bin/xc8-cc" \
             PIC_DFP="${XC8_DFP_ROOT}/xc8"
 

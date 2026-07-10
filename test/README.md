@@ -37,7 +37,7 @@ gates fail on missing/malformed output. Mutation testing requires all mutants by
 default; `MUTATION_ALLOW_SKIP=1` is an explicit report-only concession for a
 tool-limited development host and is never used by CI or release validation.
 
-## What runs (`make test`)
+## Validation layers and CI gates
 
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
@@ -52,19 +52,21 @@ tool-limited development host and is never used by CI or release validation.
 | **Firmware ↔ model equivalence** | `test-equiv` | The *real firmware* reproduces the model's exact status-LED (RA0) trace **and** internal debounce state (`program_state`/`effect_state`/`debounce_counter`) tick-for-tick over 262k exhaustive + thousands of random stimuli, and the stimulus visits every reachable model state. | host `gcc` |
 | **Firmware actuation sequence** | `test-actuation` | The *real firmware*'s full per-variant control-pin pattern (RA1/RA2) is correct at every *settled* tick; every distinct startup `LATA` transition is legal (analog-switch variants remain continuously in BYPASS, while relay emits exactly one RESET pulse); and the blocking mute/relay drivers assert the right pins + pulse width *during* each actuation. | host `gcc` |
 | **Firmware fault injection** | `test-fault` | The *real firmware* starts from the PIC's `WPUA=0x0F` reset value but initializes and preserves the exact RA3-only `0x08` mask; its defensive layer detects missing or extra pull-up latches plus the other injected SFR/state corruptions and forces a watchdog reset (and valid states do not). | host `gcc` |
-| **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* initializes `WPUA` to exact RA3-only `0x08` and recovers from an SEU/EMI corruption of the enumerated guarded SFRs (IRCF/WDTPS/PR2/T2CON/ANSELA + missing/extra pull-up latches) and `ctx_` SRAM fields via **exactly one** watchdog reset — real reset-vectoring through `0x000`; a no-injection control asserts none. The simulated-core companion to `test-fault`. | libgpsim |
+| **Firmware fault recovery on a simulated core** | `test-fault-gpsim` | The *real built HEX* initializes `WPUA` and `TRISA` to exact `0x08`, then recovers from corruption of required output directions, guarded SFRs, and `ctx_` SRAM via **exactly one** watchdog reset. RA2 is required for mute/relay and a write-back-verified no-reset control for simple. Register identity, SRAM layout, and fault injection are fail-closed. | libgpsim |
 | **Firmware ↔ model lock-step on a simulated core** | `test-lockstep-gpsim` | The *real built HEX* reproduces the model's internal debounce state (`program_state`/`effect_state`/`debounce_counter`) at **every main-loop iteration** in gpsim — pinning the XC8 *codegen*, not just the firmware C that `test-equiv` runs on the host. Directed + random stimulus visits every reachable model state. The silicon-level companion to `test-equiv`. | libgpsim + model |
+| **Built-HEX GPIO transitions and timing** | `test-io-gpsim` | The XC8-built instruction stream keeps exact `TRISA=0x08`, drives physical `PORTA[2:0]` equal to `LATA[2:0]`, follows each complete legal startup/engage/bypass transition sequence, never energizes both relay coils, and holds mute/coil pulse states for the expected simulator-cycle duration. | libgpsim |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
 | Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
 
-`make test` runs all of the above in order **for the selected variant**;
-`make test-variants` repeats the whole suite for all three. `make test-formal`
-runs just the three formal engines. Standalone (not in `make test`):
-`make test-mutation` (below), `make test-soak` (a long-run libgpsim soak),
-`make test-fault-gpsim` (silicon-level fault injection on the real HEX),
-`make test-lockstep-gpsim` (silicon-level firmware↔model lock-step on the real HEX),
-and `make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
+`make test` runs the non-libgpsim rows for the selected variant;
+`make test-variants` repeats that suite for all three. Regular CI then runs
+`make test-target-variants`, a fail-closed aggregate that requires
+`FAULT-INJECT PASS`, `LOCK-STEP PASS`, and `TARGET-IO PASS` for every variant.
+The three individual libgpsim targets remain skip-clean for ad-hoc development,
+but the aggregate rejects a skip or incomplete run. Standalone:
+`make test-mutation`, `make test-soak` (the long-run libgpsim soak), and
+`make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
 
 ## The equivalence test (`equiv/`)
 
@@ -111,7 +113,8 @@ host suite (caught only on the simulated core — confirmed by mutation).
 **Mid-actuation transient (blocking variants only).** For `cd4053-mute` and
 `tq2-relay`, each actuation asserts the mute / energises a relay coil, calls
 `__delay_ms()`, then releases it — and the *transient* mid-pulse output is exactly
-what the settled sample and gpsim cannot see. A swapped relay set/reset coil (the
+what the settled host sample and checkpoint-based `test-gpsim` cannot see. A
+swapped relay set/reset coil (the
 relay latches backwards, inverting the audio path relative to the LED) or a
 defeated mute window settles to the **same** pin state, so it passes the settled
 checks; only a snapshot *during* the pulse catches it. The mock `<xc.h>` routes
@@ -185,19 +188,45 @@ spin point is that function). This layer also drives the firmware's normal
 toggle lines, so it backs the `coverage-check-fw` gate.
 
 On the host, that reset is *inferred* from the spin (the mock has no real
-watchdog). `make test-fault-gpsim` (`pic/test_fault_pic.cc`, standalone, needs
-`gpsim-dev` + `libglib2.0-dev`) closes that gap on a simulated core: it first
-requires the built HEX to initialize `WPUA` to exact RA3-only `0x08`, then injects
-the same corruption into the enumerated guarded SFRs (`OSCCON.IRCF`,
+watchdog). `make test-fault-gpsim` (`pic/test_fault_pic.cc`, part of regular CI
+through `test-target-variants`) closes that gap on a simulated core: it first
+requires the built HEX to initialize `WPUA` and `TRISA` to exact `0x08`, then
+injects direction faults into required output pins and the same corruption into
+the enumerated guarded SFRs (`OSCCON.IRCF`,
 `WDTCON.WDTPS`, `PR2`, `T2CON`, `ANSELA`, missing/extra `WPUA` latches,
 `OPTION_REG.nWPUEN`) and `ctx_` SRAM fields of
 the **real built HEX** and asserts the firmware recovers via **exactly one**
 watchdog reset — real reset-vectoring through `0x000`, with a no-injection
-control asserting none. "Exactly one" (not "≥ 1") also catches a reset-*loop*.
+control asserting none. For the simple variant, RA2 direction corruption is a
+write-back-verified negative control because only RA0/RA1 are load-bearing at
+runtime; mute and relay must reset on RA2 corruption. "Exactly one" (not "≥ 1")
+also catches a reset-*loop*.
 It reuses the soak's non-halting notify-break-at-`0x000` machinery and inverts
 the verdict (soak: a reset is a failure; here: exactly one reset is the pass). It
 proves the reset *happens*, not its *timing* — WDT timing stays bench-only (see
 *Known gaps*).
+
+## Built-HEX target I/O (`pic/test_io_pic.cc`)
+
+The host actuation test proves the source called the right output helpers and
+requested the right delays. `make test-io-gpsim` independently checks what XC8
+actually emitted. It advances the simulated core one instruction cycle at a time
+through startup and a complete engage/re-arm/bypass round trip, recording every
+distinct `LATA[2:0]` state and its cycle timestamp.
+
+The check requires exact `TRISA=0x08`, digital output pins, and physical
+`PORTA[2:0] == LATA[2:0]` throughout the traced runtime. Per variant it asserts:
+
+- **cd4053-simple:** startup unchanged; engage `0x1 -> 0x3`; bypass `0x2 -> 0x0`.
+- **cd4053-mute:** startup unchanged; engage `0x1 -> 0x5 -> 0x7`; bypass
+  `0x6 -> 0x4 -> 0x0`, with each mute state held for 5 ms worth of instruction
+  cycles.
+- **tq2-relay:** startup RESET `0x2 -> 0x0`; engage SET
+  `0x1 -> 0x5 -> 0x1`; bypass RESET `0x0 -> 0x2 -> 0x0`, with each coil pulse
+  held near 12 ms and never both coils high.
+
+This catches generated-code sequencing, glitch, and gross delay errors. It does
+not measure physical oscillator tolerance or analog edge timing on a real board.
 
 ## gpsim functional scenarios
 
@@ -282,6 +311,11 @@ identical in layout, so this decoder is shared with the parent.
   *gpsim functional scenarios*) — but gpsim's TMR2 prescaler model is **not**
   faithful across all settings (next bullet), so the *absolute* tick period on
   silicon is itself a bench-only guarantee.
+- **Real-silicon pulse timing remains bench-only.** The target-I/O gate measures
+  the XC8-generated busy-wait duration in gpsim instruction cycles and therefore
+  verifies the programmed 5/12 ms delays at nominal configured FOSC. It cannot
+  validate HFINTOSC tolerance, output rise/fall time, relay-coil current, or
+  analog-switch mute settling on physical hardware.
 - **TMR2 prescaler *select* is not faithfully modelled by gpsim.** gpsim clamps
   `T2CKPS = 0b11` to a 1:16 prescale instead of the datasheet's 1:64
   (`0b00`/`0b01`/`0b10` → `1:1`/`1:4`/`1:16` are modelled correctly; only the top
@@ -305,6 +339,7 @@ identical in layout, so this decoder is shared with the parent.
 ## Toolchain
 
 XC8 v3.10 + PIC10-12Fxxx DFP; cppcheck 2.13 + MISRA addon (`misra.py`) + python3;
-gpsim 0.32.1 (native `p10f320` support); cbmc; host `gcc` + `gcov`. Override
+gpsim 0.32.1 plus gpsim-dev/libglib2.0-dev (native `p10f320` support); cbmc; host
+`gcc`/`g++` + `gcov`. Override
 paths via the `Makefile` variables (`PIC_CC`, `PIC_DFP`, `CPPCHECK`, `GPSIM`,
 `CBMC`, `HOST_CC`).

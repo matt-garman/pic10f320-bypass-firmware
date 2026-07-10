@@ -13,9 +13,9 @@ name: Release
 #   2. REPRODUCIBILITY GATE: asserts the freshly built images reproduce the
 #      committed SHA256SUMS byte-for-byte -- i.e. proves the committed binaries
 #      really are what the tagged source compiles to (fails the release if not);
-#   3. re-runs `make test-variants` + `make test-mutation` + `make test-fault-gpsim`
-#      (per variant, silicon-level fault recovery) + `make test-lockstep-gpsim`
-#      (per variant, firmware<->model ctx_ lock-step) on the clean runner;
+#   3. re-runs `make test-variants` + `make test-mutation` +
+#      `make test-target-variants` (real-HEX fault recovery, firmware/model
+#      lock-step, and GPIO transition/pulse timing) on the clean runner;
 #   4. publishes a GitHub Release with the images, SHA256SUMS(.asc) and MANIFEST.
 #
 # The runner is pinned to ubuntu-24.04 so the toolchain matches TOOLCHAIN.adoc;
@@ -93,11 +93,11 @@ jobs:
           for t in gpsim cppcheck cbmc gcc c++; do
             command -v "$t" >/dev/null || { echo "::error::no $t"; exit 1; }
           done
-          # test-fault-gpsim links libgpsim: assert its dev headers + glib so the
-          # target actually RUNS (it would otherwise skip cleanly -> green on nothing).
+          # The target aggregate links libgpsim: assert headers + glib so every
+          # driver runs (the aggregate also rejects each individual clean skip).
           inc="$(make -s print-PIC_SOAK_GPSIM_INC)"
-          test -f "$inc/sim_context.h" || { echo "::error::gpsim-dev headers missing at $inc (test-fault-gpsim)"; exit 1; }
-          pkg-config --exists glib-2.0 || { echo "::error::glib-2.0 missing (test-fault-gpsim)"; exit 1; }
+          test -f "$inc/sim_context.h" || { echo "::error::gpsim-dev headers missing at $inc"; exit 1; }
+          pkg-config --exists glib-2.0 || { echo "::error::glib-2.0 missing"; exit 1; }
 
       - name: Save XC8 + DFP cache
         if: steps.cache-xc8.outputs.cache-hit != 'true'
@@ -185,29 +185,11 @@ jobs:
       - name: Re-run make test-mutation
         run: make test-mutation MUTATION_ALLOW_SKIP=0
 
-      - name: Re-run make test-fault-gpsim (silicon-level fault recovery, per variant)
+      - name: Re-run target fault, lock-step, and I/O gate (all variants)
         run: |
-          set -euo pipefail
-          for v in $(make -s print-PIC_VARIANTS_ALL); do
-            log="$(mktemp)"
-            make test-fault-gpsim PIC_VARIANT="$v" \
-              PIC_CC="${XC8_DIR}/bin/xc8-cc" \
-              PIC_DFP="${XC8_DFP_ROOT}/xc8" | tee "$log"
-            grep -q "FAULT-INJECT PASS" "$log" \
-              || { echo "::error::test-fault-gpsim did not report PASS for $v (skipped or incomplete?)"; exit 1; }
-          done
-
-      - name: Re-run make test-lockstep-gpsim (firmware<->model ctx_ lock-step, per variant)
-        run: |
-          set -euo pipefail
-          for v in $(make -s print-PIC_VARIANTS_ALL); do
-            log="$(mktemp)"
-            make test-lockstep-gpsim PIC_VARIANT="$v" \
-              PIC_CC="${XC8_DIR}/bin/xc8-cc" \
-              PIC_DFP="${XC8_DFP_ROOT}/xc8" | tee "$log"
-            grep -q "LOCK-STEP PASS" "$log" \
-              || { echo "::error::test-lockstep-gpsim did not report PASS for $v (skipped or incomplete?)"; exit 1; }
-          done
+          make test-target-variants \
+            PIC_CC="${XC8_DIR}/bin/xc8-cc" \
+            PIC_DFP="${XC8_DFP_ROOT}/xc8"
 
       # --- publish ----------------------------------------------------------
       - name: Publish GitHub Release

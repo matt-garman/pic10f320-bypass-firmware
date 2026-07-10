@@ -13,8 +13,9 @@
 #   make analyze-misra      MISRA-C:2012 conformance pass only
 #   make test-config    verify the CONFIG word emitted into the built HEX
 #   make test-gpsim     register-level functional test of the HEX in gpsim
-#   make test           everything above (the full validation suite)
+#   make test           everything above (the per-variant validation suite)
 #   make test-variants  run `make test` for ALL three output variants
+#   make test-target-variants  real-HEX fault/lock-step/I/O gate for ALL variants
 #   make release        VERSION=vX.Y.Z: build+validate+stage a prebuilt release
 #   make help           print the full annotated target list
 #   make clean          remove the build directory
@@ -190,6 +191,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-fault-gpsim test-lockstep-gpsim \
+        test-io-gpsim test-target-gpsim test-target-variants \
         test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
@@ -641,21 +643,21 @@ test-soak: all
 # runtime, and assert the firmware recovers via EXACTLY ONE watchdog reset (a
 # no-injection control asserts zero). Mirrors test-soak's libgpsim machinery and
 # inverts the verdict (soak: a reset is a FAILURE; here: exactly one reset PASSES).
-# STANDALONE and NOT part of `make test`: needs gpsim-dev + libglib2.0-dev (which
-# CI may lack); skips cleanly when the toolchain/headers/HEX are absent. The gate
-# is shared by every output shell, so this is variant-agnostic; PIC_VARIANT only
-# selects which HEX is loaded. See test/pic/test_fault_pic.cc.
+# Not part of `make test`: ad-hoc invocation skips cleanly without the libgpsim
+# development stack. Regular CI calls the fail-closed test-target-variants
+# aggregate, which requires this target's PASS sentinel for every output variant.
+# See test/pic/test_fault_pic.cc.
 PIC_FAULT_SRC = test/pic/test_fault_pic.cc
 PIC_FAULT_BIN = $(BUILD_DIR)/test_fault_pic
 # _ctx_'s data address from the XC8 .sym, passed as -DCTX_ADDR so the ctx_ SRAM
 # cases self-adjust per variant. Expanded in the recipe (AFTER `all` builds the
-# .sym); empty when the .sym is absent, so the ctx_ cases compile out and report
-# skipped rather than failing.
+# .sym); the driver deliberately fails compilation if the symbol is absent, so
+# target fault coverage cannot pass with its SRAM cases omitted.
 PIC_FAULT_CTX_DEF = $(shell a=$$(awk '$$1=="_ctx_"{print $$2; exit}' $(HEX:.hex=.sym) 2>/dev/null); [ -n "$$a" ] && echo -DCTX_ADDR=0x$$a)
 PIC_FAULT_COMPILE = $(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
 		-isystem $(PIC_SOAK_GPSIM_INC) \
 		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
-		-DF_CPU_HZ=$(PIC_XTAL) $(PIC_FAULT_CTX_DEF) \
+		-DF_CPU_HZ=$(PIC_XTAL) $(PIC_OUTPUT_DEF) $(PIC_FAULT_CTX_DEF) \
 		$(PIC_FAULT_SRC) -o $(PIC_FAULT_BIN) -lgpsim
 
 # Build-only hook (parity with $(PIC_SOAK_BIN)); the phony run rule recompiles so
@@ -688,8 +690,8 @@ test-fault-gpsim: all
 		exit 1; \
 	fi; \
 	echo "--- gpsim fault-inject: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) ---"; \
-	$(PIC_FAULT_COMPILE); \
-	./$(PIC_FAULT_BIN)
+	rm -f $(PIC_FAULT_BIN); \
+	$(PIC_FAULT_COMPILE) && ./$(PIC_FAULT_BIN)
 
 # --- silicon-level LOCK-STEP co-simulation (libgpsim + reference model) -------
 # The strongest HEX-vs-model check: drive the SAME footswitch stimulus into the
@@ -699,10 +701,9 @@ test-fault-gpsim: all
 # proves the firmware C matches the model on the host; this proves the XC8-compiled
 # instruction stream does, tick for tick -- the child's analogue of the parent's
 # simavr lock-step. Links the reference model (bypass_pure.c, as test-equiv does)
-# plus libgpsim. STANDALONE and NOT part of `make test`: needs gpsim-dev +
-# libglib2.0-dev; skips cleanly when the toolchain/headers/HEX are absent. The
-# debounce path is shared by every output shell, so this is variant-agnostic;
-# PIC_VARIANT only selects which HEX is loaded. See test/pic/test_lockstep_pic.cc.
+# plus libgpsim. It is not part of development `make test`; direct invocation is
+# skip-clean, while regular CI's fail-closed target aggregate runs it for every
+# variant. See test/pic/test_lockstep_pic.cc.
 PIC_LOCKSTEP_SRC = test/pic/test_lockstep_pic.cc
 PIC_LOCKSTEP_BIN = $(BUILD_DIR)/test_lockstep_pic
 PIC_LOCKSTEP_MODEL_OBJ = $(BUILD_DIR)/bypass_pure_lockstep.o
@@ -748,8 +749,73 @@ test-lockstep-gpsim: all
 		exit 1; \
 	fi; \
 	echo "--- gpsim lock-step: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) ---"; \
-	$(PIC_LOCKSTEP_COMPILE); \
-	./$(PIC_LOCKSTEP_BIN)
+	rm -f $(PIC_LOCKSTEP_BIN); \
+	$(PIC_LOCKSTEP_COMPILE) && ./$(PIC_LOCKSTEP_BIN)
+
+# --- built-HEX GPIO transitions + pulse timing (libgpsim) --------------------
+# Observe the real XC8 instruction stream one simulator cycle at a time around
+# startup and a full engage/bypass round trip. Assert exact TRISA, LATA state
+# transitions, physical PORTA agreement, relay coil exclusion, and 5/12 ms
+# actuation widths. This validates generated instruction timing at configured
+# FOSC, not real-silicon oscillator tolerance. Ad-hoc invocation is skip-clean;
+# test-target-variants below makes it fail-closed in CI/release.
+PIC_IO_SRC = test/pic/test_io_pic.cc
+PIC_IO_BIN = $(BUILD_DIR)/test_io_pic
+PIC_IO_COMPILE = $(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.0) \
+		-isystem $(PIC_SOAK_GPSIM_INC) \
+		-DFW_PATH='"$(CURDIR)/$(HEX)"' -DPROC_NAME='"$(PIC_GPSIM_PROC)"' \
+		-DF_CPU_HZ=$(PIC_XTAL) $(PIC_OUTPUT_DEF) \
+		$(PIC_IO_SRC) -o $(PIC_IO_BIN) -lgpsim
+
+$(PIC_IO_BIN): $(PIC_IO_SRC)
+	$(PIC_IO_COMPILE)
+
+test-io-gpsim: all
+	@if ! command -v $(PIC_SOAK_CXX) >/dev/null 2>&1; then \
+		echo "no C++ compiler ($(PIC_SOAK_CXX)); skipping gpsim target-I/O test"; exit 0; \
+	fi; \
+	if [ ! -f "$(PIC_SOAK_GPSIM_INC)/sim_context.h" ]; then \
+		echo "gpsim-dev headers not at $(PIC_SOAK_GPSIM_INC); skipping target-I/O test (install gpsim-dev)"; exit 0; \
+	fi; \
+	if ! pkg-config --exists glib-2.0 2>/dev/null; then \
+		echo "libglib2.0-dev not found; skipping target-I/O test (install libglib2.0-dev)"; exit 0; \
+	fi; \
+	if [ ! -f "$(HEX)" ]; then \
+		echo "no $(HEX) (XC8 absent?); skipping target-I/O test"; exit 0; \
+	fi; \
+	echo "--- gpsim target I/O: variant=$(PIC_VARIANT) proc=$(PIC_GPSIM_PROC) ---"; \
+	rm -f $(PIC_IO_BIN); \
+	$(PIC_IO_COMPILE) && ./$(PIC_IO_BIN)
+
+# Fail-closed real-HEX aggregate. Individual libgpsim targets remain convenient
+# skip-clean development commands, but this wrapper requires each explicit PASS
+# marker. A missing compiler/header, missing ctx_ symbol, or partial run therefore
+# cannot masquerade as a successful CI/release gate.
+test-target-gpsim:
+	@set -e; \
+	for spec in \
+		"test-fault-gpsim|FAULT-INJECT PASS" \
+		"test-lockstep-gpsim|LOCK-STEP PASS" \
+		"test-io-gpsim|TARGET-IO PASS"; do \
+		target=$${spec%%|*}; marker=$${spec#*|}; log=`mktemp`; \
+		if ! $(MAKE) --no-print-directory $$target >$$log 2>&1; then \
+			cat $$log; rm -f $$log; exit 1; \
+		fi; \
+		cat $$log; \
+		if ! grep -q "$$marker" $$log; then \
+			echo "FAIL: $$target did not report '$$marker' (skipped or incomplete?)"; \
+			rm -f $$log; exit 1; \
+		fi; \
+		rm -f $$log; \
+	done
+	@echo "=== target fault/lock-step/I-O PASS (variant $(PIC_VARIANT)) ==="
+
+test-target-variants:
+	@for v in $(PIC_VARIANTS_ALL); do \
+		echo "===================== TARGET VARIANT $$v ====================="; \
+		$(MAKE) --no-print-directory PIC_VARIANT=$$v test-target-gpsim || exit 1; \
+	done
+	@echo "=== target fault/lock-step/I-O validated for all variants ==="
 
 # --- mutation testing --------------------------------------------------------
 # Inject deliberate faults into the firmware and the model, and confirm the suite
@@ -804,7 +870,8 @@ print-%:
 #      is present (the inverse of the dev-time "skip cleanly" behaviour -- a
 #      release must never green-light on a tool that silently did nothing);
 #   2. clean-builds all three output-variant images;
-#   3. runs `make test-variants` and ALL soak combos (one per variant) in parallel;
+#   3. runs `make test-variants`, `make test-mutation`, the fail-closed real-HEX
+#      target aggregate, and all soak combos (one per variant) in parallel;
 #   4. stages release/<VERSION>/ with the .hex images, SHA256SUMS, a provenance
 #      MANIFEST (toolchain versions, per-image flash usage / CONFIG word, flashing
 #      command, soak evidence) and a README;
@@ -853,10 +920,13 @@ help:
 	@echo "  test-fault-variants  run test-fault across all three output variants"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
-	@echo "  test-fault-gpsim  inject SFR/SRAM faults on the real HEX in gpsim; assert exactly"
-	@echo "                  one WDT-reset recovery per fault (standalone; needs gpsim-dev)"
+	@echo "  test-fault-gpsim  inject TRISA/SFR/SRAM faults on the real HEX in gpsim; assert"
+	@echo "                  the variant-specific WDT-reset response (needs gpsim-dev)"
 	@echo "  test-lockstep-gpsim  lock-step the real HEX vs the model in gpsim: assert ctx_"
-	@echo "                  matches the model every loop iteration (standalone; needs gpsim-dev)"
+	@echo "                  matches the model every loop iteration (needs gpsim-dev)"
+	@echo "  test-io-gpsim  real-HEX TRISA/PORTA/LATA transition + pulse-cycle checks"
+	@echo "  test-target-gpsim  fail-closed fault + lock-step + target-I/O gate for one variant"
+	@echo "  test-target-variants  run test-target-gpsim for ALL variants (regular CI gate)"
 	@echo "  test-mutation   inject firmware/model faults; ALL must run and be killed"
 	@echo "                  (MUTATION_ALLOW_SKIP=1 permits an explicit partial local run)"
 	@echo "Analysis:"

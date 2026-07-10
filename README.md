@@ -64,20 +64,25 @@ plus the mute/relay drivers' *mid-actuation* sequencing and pulse width
 that neither the RA0 trace nor a settled snapshot can see. Both the host
 actuation check and the gpsim test assert each variant's full BYPASS
 *and* ENGAGED control-pin pattern, catching a wrong drive polarity. The real HEX is
-independently re-checked on a simulated core in gpsim; and
+independently re-checked on a simulated core in gpsim. A built-HEX target-I/O
+test additionally requires exact `TRISA=0x08`, verifies physical `PORTA` follows
+every `LATA` transition, checks each variant's complete startup/engage/bypass
+transition sequence, and measures mute/relay pulses from simulator cycles; and
 the real firmware's **defensive layer** (the SEU/EMI sanity gate and
 watchdog-reset path, which valid stimulus never reaches) is
 exercised by a host **fault-injection** harness — and re-verified on a
 simulated core (`test-fault-gpsim`), where corrupting every guarded
-SFR/`ctx_`-SRAM location in the real HEX forces exactly one real
+SFR/`ctx_`-SRAM location and required `TRISA` output direction in the real HEX
+forces exactly one real
 watchdog reset. Static analysis
 (cppcheck + MISRA-C:2012, zero deviations), CONFIG-word
 verification, mutation testing, and model + firmware coverage gates
-round it out. `make test` runs all of it for the selected variant;
-`make test-variants` sweeps all three. A long-run `make test-soak`
-(libgpsim), silicon-level fault injection (`make test-fault-gpsim`), and
-an optional KLEE pass (`make test-symbolic-klee`) are available as
-standalone targets.
+round it out. `make test` runs the per-variant development suite;
+`make test-variants` sweeps all three. Regular CI also runs the fail-closed
+`make test-target-variants` aggregate, requiring target fault recovery,
+firmware/model lock-step, and target-I/O PASS evidence for every variant. A
+long-run `make test-soak` (libgpsim) and an optional KLEE pass
+(`make test-symbolic-klee`) remain standalone targets.
 
 **The one structural difference:** the parent compiles its formally-verified pure
 core *directly into* the shipping firmware: the tested code and the flashed code

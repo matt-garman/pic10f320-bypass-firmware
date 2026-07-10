@@ -17,7 +17,9 @@ so a partial development toolchain can still run useful checks. Build and
 coverage gates instead FAIL LOUD on missing or malformed output. Mutation testing
 also requires every mutant by default; `MUTATION_ALLOW_SKIP=1` permits an
 explicitly partial local report. CI and the release pipeline never enable that
-override and fail on any missing tool or skipped gate.
+override and fail on any missing tool or skipped gate. In particular,
+`test-target-variants` converts the individually skip-clean libgpsim drivers into
+a strict aggregate by requiring each driver's explicit PASS marker.
 
 == Development / CI platform
 
@@ -53,19 +55,23 @@ differs.
                 note: the processor is `p10f320`; its I/O pins are named
                 ra0..ra3 (lower-case) in stimulus/attach scripts.
 
-  libgpsim:     gpsim-dev + libglib2.0-dev  (Ubuntu packages)
-                Needed ONLY by `make test-soak` -- the long-duration libgpsim
-                soak (test/pic/test_soak_pic.cc) LINKS libgpsim instead of
-                scripting the gpsim CLI; the runtime `gpsim` package ships no
-                headers.
-                install: apt install gpsim-dev libglib2.0-dev
+  libgpsim:     g++ + gpsim-dev + libglib2.0-dev  (Ubuntu packages)
+                Needed by `make test-target-variants` -- real-HEX fault
+                recovery, firmware/model lock-step, and GPIO transition/pulse
+                timing -- and by the long-duration `make test-soak`. These
+                drivers LINK libgpsim instead of scripting the gpsim CLI; the
+                runtime `gpsim` package ships no headers.
+                install: apt install g++ gpsim-dev libglib2.0-dev
                 note: gpsim-dev's headers `#include <glib.h>`, which is NOT
                 pulled in by gpsim-dev, so libglib2.0-dev must be installed
                 explicitly.  The build passes -isystem for the gpsim headers
                 (they emit their own -Woverloaded-virtual warnings).
-                `make test-soak` skips cleanly when either dev package, glib, or
-                the XC8-built HEX is absent.  The release soak (one combo per
-                output variant, in parallel) requires this whole stack.
+                Individual libgpsim targets skip cleanly when the development
+                stack or XC8-built HEX is absent. The regular-CI/release
+                `test-target-variants` aggregate requires explicit PASS evidence
+                and therefore fails closed on any such skip. The release soak
+                (one combo per output variant, in parallel) also requires this
+                whole stack.
 
 XC8 / device-pack behaviours relied on (proven against V3.10 + DFP v1.9.189):
 
@@ -124,18 +130,18 @@ equivalence/fault harnesses build and run on the host (no PIC hardware needed).
 == Reproducing the environment (Ubuntu 24.04)
 
   # host + analysis + simulator (apt):
-  sudo apt install make gcc gpsim cppcheck cbmc python3
+  sudo apt install make gcc g++ gpsim gpsim-dev libglib2.0-dev cppcheck cbmc python3
 
-  # for the libgpsim soak (`make test-soak`; required by the release pipeline):
-  sudo apt install gpsim-dev libglib2.0-dev
+  # The libgpsim development packages above are regular-CI requirements for
+  # `make test-target-variants` and release requirements for `make test-soak`.
 
   # XC8 V3.10 + the PIC10-12Fxxx_DFP pack are separate Microchip downloads
   # (see the PIC toolchain section above). Without them, build-dependent targets
   # fail; independent host-side model/formal targets remain usable.
 
 The CI workflow (`.github/workflows/ci.yml`) installs exactly this set on a
-pinned ubuntu-24.04 runner: gpsim + cppcheck + cbmc + gcc + python3 from apt, and
-XC8 + the DFP fetched from Microchip and cached.
+pinned ubuntu-24.04 runner: gpsim/libgpsim + cppcheck + cbmc + gcc/g++ + python3
+from apt, and XC8 + the DFP fetched from Microchip and cached.
 
 == Version pinning strategy
 

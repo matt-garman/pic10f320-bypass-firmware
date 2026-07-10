@@ -47,11 +47,10 @@
 //        free -- exactly as the host harness (one input per loop iteration) does.
 //
 // Build/run via the Makefile:  `make test-lockstep-gpsim`
-//   STANDALONE (like test-fault-gpsim / test-soak): links libgpsim (needs gpsim-dev
-//   + libglib2.0-dev) and the reference model (test/model/bypass_pure.c); NOT part
-//   of `make test`; skips cleanly when the compiler / headers / HEX are absent. The
-//   debounce code is shared by every output shell, so this is variant-agnostic;
-//   PIC_VARIANT only selects which HEX is loaded (run per-variant for completeness).
+//   Links libgpsim (needs gpsim-dev + libglib2.0-dev) and the reference model.
+//   It is not part of development `make test`; individual invocation is
+//   skip-clean, while regular CI's fail-closed `make test-target-variants`
+//   aggregate runs it for every variant and requires its PASS marker.
 
 #include <cstdio>
 #include <cstdint>

@@ -9,10 +9,12 @@
 #   clean pass here means the CI matrix will be green.
 #
 # CI-JOB MAPPING (.github/workflows/ci.yml)
-#   verify -> make test-variants   (build + static analysis [cppcheck + MISRA]
+#   verify -> make test-variants + make test-target-variants
+#                                  (build + static analysis [cppcheck + MISRA]
 #                                   + host/formal + firmware<->model equivalence
 #                                   + actuation + fault-injection + CONFIG word
-#                                   + gpsim + coverage gates -- for ALL THREE
+#                                   + gpsim + coverage + target fault/lock-step/
+#                                   I/O timing gates -- for ALL THREE
 #                                   output variants: cd4053-simple,
 #                                   cd4053-mute, tq2-relay)
 #   stress -> make test-mutation   (mutation-kill suite; gated OFF pull
@@ -40,7 +42,8 @@
 #
 # TOOLCHAIN
 #   Needs the same tools CI installs: XC8 + the PIC10-12Fxxx DFP, gpsim,
-#   cppcheck, cbmc, gcc, python3. See TOOLCHAIN.adoc.
+#   gpsim-dev, libglib2.0-dev, cppcheck, cbmc, gcc/g++, python3. See
+#   TOOLCHAIN.adoc.
 #
 #   Most individual analysis/test targets SKIP CLEANLY (exit 0) when their tool
 #   is absent (see TOOLCHAIN.adoc), which is fine for ad-hoc dev use but would
@@ -126,9 +129,10 @@ trap on_exit EXIT
 # fail loud rather than let a missing optional tool silently skip a gate.
 # ----------------------------------------------------------------------------
 assert_toolchain() {
-	local pic_cc pic_dfp dev_header missing=0
+	local pic_cc pic_dfp gpsim_inc dev_header missing=0
 	pic_cc="$(make -s print-PIC_CC)"
 	pic_dfp="$(make -s print-PIC_DFP)"
+	gpsim_inc="$(make -s print-PIC_SOAK_GPSIM_INC)"
 	dev_header="${pic_dfp}/pic/include/proc/pic10f320.h"
 
 	if [ -x "$pic_cc" ] || command -v "$pic_cc" >/dev/null 2>&1; then
@@ -137,9 +141,13 @@ assert_toolchain() {
 		log "missing: XC8 ($pic_cc)"; missing=1
 	fi
 	[ -f "$dev_header" ] || { log "missing: PIC10-12Fxxx DFP ($dev_header)"; missing=1; }
-	for t in gpsim cppcheck cbmc gcc python3; do
+	for t in gpsim cppcheck cbmc gcc c++ python3; do
 		command -v "$t" >/dev/null 2>&1 || { log "missing: $t"; missing=1; }
 	done
+	[ -f "$gpsim_inc/sim_context.h" ] \
+		|| { log "missing: gpsim-dev headers ($gpsim_inc/sim_context.h)"; missing=1; }
+	pkg-config --exists glib-2.0 2>/dev/null \
+		|| { log "missing: libglib2.0-dev (glib-2.0 pkg-config entry)"; missing=1; }
 
 	[ "$missing" -eq 0 ] || die "toolchain incomplete (see TOOLCHAIN.adoc); install the above and re-run."
 }
@@ -158,6 +166,7 @@ fi
 [ "$DO_CLEAN" -eq 1 ] && run_step "make clean (match CI fresh checkout)" make clean
 
 run_step "verify job: make test-variants" make test-variants
+run_step "verify job: make test-target-variants" make test-target-variants
 
 if [ "$PR_MODE" -eq 1 ]; then
 	log "skipping stress job (--pr mirrors CI, which gates it off pull_request events)"
