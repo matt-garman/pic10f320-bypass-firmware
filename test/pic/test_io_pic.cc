@@ -62,7 +62,7 @@ struct Transition {
     guint64 cycle;
 };
 
-struct Trace {
+struct IoTrace {
     const char *name;
     std::vector<Transition> transitions;
     bool saw_configured = false;
@@ -71,7 +71,7 @@ struct Trace {
     bool porta_ok = true;
     bool relay_coils_ok = true;
 
-    explicit Trace(const char *trace_name) : name(trace_name) {}
+    explicit IoTrace(const char *trace_name) : name(trace_name) {}
 };
 
 static pic_processor *g_cpu = nullptr;
@@ -127,7 +127,7 @@ static bool run_one_cycle(void) {
     return true;
 }
 
-static void trace_cycles(Trace *trace, guint64 cycles, bool require_configured) {
+static void trace_cycles(IoTrace *trace, guint64 cycles, bool require_configured) {
     unsigned previous = reg8(g_lata) & OUTPUT_MASK;
     for (guint64 i = 0; i < cycles; ++i) {
         if (!run_one_cycle()) {
@@ -156,7 +156,7 @@ static void trace_cycles(Trace *trace, guint64 cycles, bool require_configured) 
     }
 }
 
-static void check_trace_health(const Trace &trace, bool require_seen) {
+static void check_trace_health(const IoTrace &trace, bool require_seen) {
     if (require_seen) check(trace.saw_configured, "startup never reached digital TRISA=0x08 configuration");
     check(trace.trisa_ok, "TRISA did not remain exact RA3-input/RA0..RA2-output 0x08");
     check(trace.ansela_ok, "ANSELA re-selected an output pin as analog");
@@ -166,7 +166,7 @@ static void check_trace_health(const Trace &trace, bool require_seen) {
 #endif
 }
 
-static void check_sequence(const Trace &trace, const unsigned *expected, size_t count) {
+static void check_sequence(const IoTrace &trace, const unsigned *expected, size_t count) {
     g_checks++;
     bool match = trace.transitions.size() == count;
     if (match) {
@@ -186,7 +186,7 @@ static void check_sequence(const Trace &trace, const unsigned *expected, size_t 
     }
 }
 
-static void check_pulse(const Trace &trace, unsigned pulse_state,
+static void check_pulse(const IoTrace &trace, unsigned pulse_state,
                         unsigned expected_ms, bool relay_minimum) {
     const Transition *start = nullptr;
     const Transition *end = nullptr;
@@ -264,7 +264,7 @@ int main(void) {
     printf("TARGET-IO START: fw=%s proc=%s FOSC=%lu\n",
            FW_PATH, PROC_NAME, (unsigned long)F_CPU_HZ);
 
-    Trace startup("startup");
+    IoTrace startup("startup");
     trace_cycles(&startup, (guint64)STARTUP_MS * CYCLES_PER_MS, false);
     check_trace_health(startup, true);
     check((reg8(g_trisa) & 0x0Fu) == TRISA_INIT, "startup TRISA is not exact 0x08");
@@ -272,23 +272,23 @@ int main(void) {
     check((reg8(g_porta) & OUTPUT_MASK) == 0u, "startup physical outputs did not settle low");
 
     footsw_set(true);
-    Trace engage("engage");
+    IoTrace engage("engage");
     trace_cycles(&engage, (guint64)PRESS_TRACE_MS * CYCLES_PER_MS, true);
     check_trace_health(engage, false);
 
     footsw_set(false);
-    Trace release_one("release-after-engage");
+    IoTrace release_one("release-after-engage");
     trace_cycles(&release_one, (guint64)RELEASE_TRACE_MS * CYCLES_PER_MS, true);
     check_trace_health(release_one, false);
     check_sequence(release_one, nullptr, 0u);
 
     footsw_set(true);
-    Trace bypass("bypass");
+    IoTrace bypass("bypass");
     trace_cycles(&bypass, (guint64)PRESS_TRACE_MS * CYCLES_PER_MS, true);
     check_trace_health(bypass, false);
 
     footsw_set(false);
-    Trace release_two("release-after-bypass");
+    IoTrace release_two("release-after-bypass");
     trace_cycles(&release_two, (guint64)RELEASE_TRACE_MS * CYCLES_PER_MS, true);
     check_trace_health(release_two, false);
     check_sequence(release_two, nullptr, 0u);
