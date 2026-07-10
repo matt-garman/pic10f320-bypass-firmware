@@ -42,11 +42,22 @@
 set -u
 
 GCOV="${1:?usage: check_fw_coverage.sh <firmware.c.gcov>}"
-if [ ! -f "$GCOV" ]; then
-    echo "FAIL: firmware gcov annotation not found: $GCOV"
+GCOV_SOURCE="$GCOV"
+if [ ! -f "$GCOV_SOURCE" ]; then
+    echo "FAIL: firmware gcov annotation not found: $GCOV_SOURCE"
     echo "      (gcov must run where the #included firmware source resolves.)"
     exit 1
 fi
+
+# Analyze a private snapshot so a concurrent cleanup cannot remove or replace
+# the annotation between the existence check and the scans below.
+SNAPSHOT=$(mktemp)
+trap 'rm -f "$SNAPSHOT"' EXIT
+if ! cp -- "$GCOV_SOURCE" "$SNAPSHOT"; then
+    echo "FAIL: could not snapshot firmware gcov annotation: $GCOV_SOURCE"
+    exit 1
+fi
+GCOV="$SNAPSHOT"
 
 allowed=0
 bad=0
@@ -69,7 +80,17 @@ done < <(grep -E '^[[:space:]]*#####:' "$GCOV")
 
 total=$(grep -cE '^[[:space:]]*([0-9]+|#####):[[:space:]]*[0-9]+:' "$GCOV")
 uncov=$(grep -cE '^[[:space:]]*#####:' "$GCOV")
+
+if ! [[ "$total" =~ ^[0-9]+$ && "$uncov" =~ ^[0-9]+$ ]]; then
+    echo "FAIL: could not count executable lines in firmware gcov annotation"
+    exit 1
+fi
 covered=$((total - uncov))
+
+if [ "$total" -eq 0 ]; then
+    echo "FAIL: firmware gcov annotation contains no executable lines: $GCOV_SOURCE"
+    exit 1
+fi
 
 echo "firmware line coverage: ${covered}/${total} executable lines (${allowed} allowed-uncovered fault-path line(s), ${bad} disallowed)"
 

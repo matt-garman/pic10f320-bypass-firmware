@@ -263,7 +263,9 @@ for v in $VARIANTS; do
 	IMAGES+=("$img")
 	# Parse the program-word count from the build's "OK: ... N words" line. Anchor
 	# on '^OK:' so we don't grab the "$(PIC_FLASH_WORDS) words" in the build header.
-	WORDS[$v]=$(grep -E '^OK:' "$EVID/build-$v.log" | grep -oE '[0-9]+ words' | head -1 | awk '{print $1}')
+	used=$(grep -E '^OK:' "$EVID/build-$v.log" | grep -oE '[0-9]+ words' | head -1 | awk '{print $1}' || true)
+	[ -n "$used" ] || { cat "$EVID/build-$v.log" >&2; die "could not parse flash usage for $v."; }
+	WORDS[$v]="$used"
 done
 ok "built ${#IMAGES[@]} images."
 
@@ -276,7 +278,7 @@ make test-variants PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
 	>"$EVID/test-variants.log" 2>&1 || { tail -40 "$EVID/test-variants.log" >&2; die "make test-variants FAILED."; }
 ok "test-variants passed."
 log "running make test-mutation (inject faults; verify the suite kills them)..."
-make test-mutation PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
+make test-mutation MUTATION_ALLOW_SKIP=0 PIC_CC="$PIC_CC" PIC_DFP="$PIC_DFP" \
 	>"$EVID/test-mutation.log" 2>&1 || { tail -40 "$EVID/test-mutation.log" >&2; die "make test-mutation FAILED."; }
 ok "test-mutation passed."
 
@@ -377,7 +379,19 @@ for img in "${IMAGES[@]}"; do cp -p "$img" "$OUTPUT_DIR/"; done
 
 # Checksums over the images (verifiable with: sha256sum -c SHA256SUMS).
 ( cd "$OUTPUT_DIR" && sha256sum ./*.hex | sed 's# \./# #' > SHA256SUMS )
-ok "wrote SHA256SUMS over ${#IMAGES[@]} images."
+
+# Fail closed unless the expected build list, staged HEX files, and checksum
+# entries are identical filename sets. OUTPUT_DIR is new, but this assertion
+# protects future staging changes from publishing an extra or unchecksummed file.
+printf '%s\n' "${IMAGES[@]##*/}" | sort > "$WORK/images-expected.txt"
+for img in "$OUTPUT_DIR"/*.hex; do basename "$img"; done | sort > "$WORK/images-staged.txt"
+awk 'NF == 2 && $2 ~ /\.hex$/ {print $2}' "$OUTPUT_DIR/SHA256SUMS" \
+	| sort > "$WORK/images-checksummed.txt"
+diff -u "$WORK/images-expected.txt" "$WORK/images-staged.txt" \
+	|| die "staged HEX set differs from expected variants."
+diff -u "$WORK/images-expected.txt" "$WORK/images-checksummed.txt" \
+	|| die "SHA256SUMS HEX set differs from expected variants."
+ok "wrote SHA256SUMS over the exact ${#IMAGES[@]}-image release set."
 
 # Copy evidence. The per-combo soak logs and build logs are small and kept in
 # full; the test-variants log is large and would bloat the repo on every

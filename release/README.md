@@ -31,10 +31,12 @@ validation suite — backs these binaries, through two mechanisms:
    When the release tag is pushed, CI
    ([`.github/workflows/release.yml`](../.github/workflows/release.yml)) rebuilds
    the images from the tagged source on a clean runner and **fails the release
-   unless they reproduce these exact hashes**. That check is the public
-   attestation that *these binaries are exactly what the tested source compiles
-   to* — you do not have to take the maintainer's word for it, and you can run
-   the same check yourself (see "Reproduce" below).
+   unless they reproduce these exact hashes**. CI also requires exact filename-set
+   equality among the tagged Makefile's variants, committed HEX files,
+   `SHA256SUMS`, and the fresh build, so no missing, extra, duplicate, or
+   unchecksummed image can be published. Together those checks attest that the
+   complete release set is exactly what the tested source compiles to; you can
+   run the same hash check yourself (see "Reproduce" below).
 
 `SHA256SUMS` is also signed (`SHA256SUMS.asc`), and the release tag is a signed
 git tag, so you can additionally verify the maintainer vouched for the bytes.

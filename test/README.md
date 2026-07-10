@@ -31,8 +31,11 @@ To get as close to the parent as possible anyway, validation here is built in
    path fires (and that valid states don't). It also backs the **firmware**
    coverage gate.
 
-Everything runs from the top-level `Makefile`; each target skips cleanly
-(exit 0) when its tool is absent.
+Everything runs from the top-level `Makefile`. Optional analyzer/simulator
+targets may skip cleanly when their tools are absent, but build and coverage
+gates fail on missing/malformed output. Mutation testing requires all mutants by
+default; `MUTATION_ALLOW_SKIP=1` is an explicit report-only concession for a
+tool-limited development host and is never used by CI or release validation.
 
 ## What runs (`make test`)
 
@@ -234,6 +237,12 @@ mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
 mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
 part of `make test` (it rebuilds per mutant). Currently 34 mutants (28 firmware +
 6 model), all killed.
+
+`make test-mutation` is fail-closed: the gpsim-only tick-gating mutant must run,
+and any skipped mutant fails the target. On a development host without XC8/gpsim,
+`make test-mutation MUTATION_ALLOW_SKIP=1` runs the host-evaluable subset and
+labels the result `PARTIAL`; CI, local-CI reproduction, and release validation
+always leave the override at its strict default `0`.
 
 Almost every firmware mutant is killed by a **host** target (the LED-invert and
 footswitch-polarity mutants diverge on RA0, so they are targeted at `test-equiv`,

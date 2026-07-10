@@ -21,8 +21,10 @@
 #
 # `make help` prints the complete target list; the above is just the core set.
 #
-# Each analysis/test target SKIPS CLEANLY (exit 0) when its tool is absent, so a
-# partial toolchain still runs whatever it can.
+# Optional analysis/simulator targets skip cleanly when their tool is absent.
+# Gates fail closed on malformed tool output, and mutation testing requires every
+# mutant by default; use MUTATION_ALLOW_SKIP=1 only for an explicitly partial
+# development-host mutation run.
 #
 # Toolchain: Microchip XC8 v3.10 + the PIC10-12Fxxx DFP, plus cppcheck (+ the
 # MISRA addon + python3), gpsim, and a host C compiler. Override any of the
@@ -98,6 +100,8 @@ PIC_CFLAGS      := -mcpu=$(PIC_CHIP) -mdfp=$(PIC_DFP) -std=c99 -O2 \
 CPPCHECK        ?= cppcheck
 GPSIM           ?= gpsim
 HOST_CC         ?= gcc
+GCOV            ?= gcov
+MUTATION_ALLOW_SKIP ?= 0
 
 # gpsim processor name for the register-level functional test. The per-variant
 # settled ENGAGED / BYPASS LATA the test asserts come from PIC_ENGAGED_LATA /
@@ -199,15 +203,20 @@ all: $(SRC)
 		echo "XC8 not found at $(PIC_CC) (override with PIC_CC=...)"; exit 1; \
 	fi
 	@mkdir -p $(BUILD_DIR)
+	@rm -f $(HEX)
 	@echo "=== PIC10F320 build + flash-budget ($(PIC_FLASH_WORDS) words, variant $(PIC_VARIANT)) ==="
 	@out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
 		-o $(notdir $(HEX)) 2>&1` \
 		|| { printf '%s\n' "$$out"; echo "FAIL: did not compile for PIC10F320"; exit 1; }; \
+	if [ ! -s "$(HEX)" ]; then \
+		echo "FAIL: XC8 reported success but did not produce a nonempty $(HEX)"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi; \
 	dec=`printf '%s\n' "$$out" | grep -E 'Program space' \
 		| grep -oE '\( *[0-9]+ *\)' | head -1 | tr -d '() '`; \
 	if [ -z "$$dec" ]; then \
-		echo "WARN: could not parse program-word count from XC8 output:"; \
-		printf '%s\n' "$$out"; exit 0; \
+		echo "FAIL: could not parse program-word count from XC8 output:"; \
+		printf '%s\n' "$$out"; exit 1; \
 	fi; \
 	pct=`awk -v u=$$dec -v t=$(PIC_FLASH_WORDS) 'BEGIN{printf "%.1f", u*100/t}'`; \
 	if [ $$dec -gt $(PIC_FLASH_WORDS) ]; then \
@@ -218,9 +227,23 @@ all: $(SRC)
 
 # Print XC8's full memory-usage summary (program + data space).
 size: $(SRC)
+	@if [ ! -x "$(PIC_CC)" ] && ! command -v $(PIC_CC) >/dev/null 2>&1; then \
+		echo "XC8 not found at $(PIC_CC) (override with PIC_CC=...)"; exit 1; \
+	fi
 	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
-		-o $(notdir $(HEX)) 2>&1 | grep -iE 'space|memory summary' || true
+	@rm -f $(HEX)
+	@out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
+		-o $(notdir $(HEX)) 2>&1` \
+		|| { printf '%s\n' "$$out"; echo "FAIL: did not compile for PIC10F320"; exit 1; }; \
+	if [ ! -s "$(HEX)" ]; then \
+		echo "FAIL: XC8 reported success but did not produce a nonempty $(HEX)"; exit 1; \
+	fi; \
+	if ! printf '%s\n' "$$out" | grep -qE 'Program space'; then \
+		echo "FAIL: XC8 output contained no parseable program-space summary:"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi; \
+	summary=`printf '%s\n' "$$out" | grep -iE 'space|memory summary'`; \
+	printf '%s\n' "$$summary"
 
 # --- static analysis ---------------------------------------------------------
 analyze: analyze-cppcheck analyze-misra
@@ -459,6 +482,8 @@ COVERAGE_TESTS := host/test_logic_host formal/test_model_check formal/test_symbo
 
 define RUN_MODEL_COVERAGE
 	mkdir -p $(COVERAGE_DIR); \
+	rm -f $(COVERAGE_DIR)/*.gcda $(COVERAGE_DIR)/*.gcno \
+		$(COVERAGE_DIR)/bypass_pure.c.gcov bypass_pure.c.gcov; \
 	$(HOST_CC) -std=c11 -O0 $(HOST_INC) --coverage -c $(MODEL_SRC) \
 		-o $(COVERAGE_DIR)/model_cov.o || exit 1; \
 	for t in $(COVERAGE_TESTS); do \
@@ -471,22 +496,39 @@ endef
 
 coverage:
 	@$(RUN_MODEL_COVERAGE)
-	@cd $(COVERAGE_DIR) && gcov -b model_cov >/dev/null 2>&1 || true
+	@out=`$(GCOV) -b -o $(COVERAGE_DIR) $(COVERAGE_DIR)/model_cov.o 2>&1` \
+		|| { printf '%s\n' "$$out"; echo "FAIL: gcov could not generate model coverage"; exit 1; }; \
+	if [ ! -s bypass_pure.c.gcov ]; then \
+		echo "FAIL: gcov reported success but did not produce bypass_pure.c.gcov"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi; \
+	mv bypass_pure.c.gcov $(COVERAGE_DIR)/bypass_pure.c.gcov
 	@echo "Coverage report: $(COVERAGE_DIR)/bypass_pure.c.gcov"
 
 # Coverage GATE (wired into `make test`): fail if model line coverage drops below
 # COVERAGE_MIN. The debounce model is small and the suite exercises it fully.
 coverage-check:
 	@$(RUN_MODEL_COVERAGE)
-	@pct=`cd $(COVERAGE_DIR) && gcov model_cov 2>/dev/null \
-		| awk -F'[:%]' '/Lines executed/{print $$2; exit}'`; \
+	@out=`$(GCOV) -o $(COVERAGE_DIR) $(COVERAGE_DIR)/model_cov.o 2>&1` \
+		|| { printf '%s\n' "$$out"; echo "FAIL: gcov could not generate model coverage"; exit 1; }; \
+	pct=`printf '%s\n' "$$out" | awk -F'[:%]' '/Lines executed/{print $$2; exit}'`; \
 	echo "model line coverage (host + formal): $${pct:-unknown}% (floor $(COVERAGE_MIN)%)"; \
-	if [ -z "$$pct" ]; then \
-		echo "WARNING: could not parse gcov coverage; not gating."; \
-	else \
-		awk -v p="$$pct" -v m="$(COVERAGE_MIN)" 'BEGIN{exit !(p+0>=m+0)}' \
-			|| { echo "FAIL: coverage $$pct% below floor $(COVERAGE_MIN)%"; exit 1; }; \
-	fi
+	if ! printf '%s\n' "$$pct" | grep -Eq '^[0-9]+([.][0-9]+)?$$'; then \
+		echo "FAIL: gcov line coverage is missing or malformed:"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi; \
+	if [ ! -s bypass_pure.c.gcov ]; then \
+		echo "FAIL: gcov reported success but did not produce a fresh bypass_pure.c.gcov"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi; \
+	if ! printf '%s\n' "$(COVERAGE_MIN)" | grep -Eq '^[0-9]+([.][0-9]+)?$$'; then \
+		echo "FAIL: COVERAGE_MIN is malformed: $(COVERAGE_MIN)"; exit 1; \
+	fi; \
+	mv bypass_pure.c.gcov $(COVERAGE_DIR)/bypass_pure.c.gcov; \
+	awk -v p="$$pct" 'BEGIN{exit !(p>=0 && p<=100)}' \
+		|| { echo "FAIL: gcov reported out-of-range coverage $$pct%"; exit 1; }; \
+	awk -v p="$$pct" -v m="$(COVERAGE_MIN)" 'BEGIN{exit !(p>=m)}' \
+		|| { echo "FAIL: coverage $$pct% below floor $(COVERAGE_MIN)%"; exit 1; }
 
 # Firmware coverage GATE (wired into `make test`): unlike the model gate above
 # (a percentage floor), this asserts every line of the SHIPPING firmware
@@ -502,7 +544,8 @@ coverage-check-fw:
 	@# .gcda/.gcno from a prior variant (e.g. during `make test-variants`) trips
 	@# libgcov's "overwriting an existing profile data with a different checksum".
 	@rm -f $(COVERAGE_DIR)/fw_fault_cov.gcda $(COVERAGE_DIR)/fw_fault_cov.gcno \
-		$(COVERAGE_DIR)/test_fault_cov_drv.gcda $(COVERAGE_DIR)/test_fault_cov_drv.gcno
+		$(COVERAGE_DIR)/test_fault_cov_drv.gcda $(COVERAGE_DIR)/test_fault_cov_drv.gcno \
+		bypass_mcu_pic10f320.c.gcov
 	@$(HOST_CC) -std=c11 -O0 --coverage $(FAULT_FW_DEFS) $(FAULT_INC) \
 		-c $(FAULT_HARNESS) -o $(COVERAGE_DIR)/fw_fault_cov.o
 	@$(HOST_CC) -std=c11 -O0 --coverage $(PIC_OUTPUT_DEF) $(FAULT_INC) \
@@ -510,7 +553,12 @@ coverage-check-fw:
 	@$(HOST_CC) --coverage $(COVERAGE_DIR)/fw_fault_cov.o $(COVERAGE_DIR)/test_fault_cov_drv.o \
 		-o $(COVERAGE_DIR)/test_fault_cov
 	@$(COVERAGE_DIR)/test_fault_cov >/dev/null
-	@gcov -o $(COVERAGE_DIR) $(COVERAGE_DIR)/fw_fault_cov.o >/dev/null 2>&1 || true
+	@out=`$(GCOV) -o $(COVERAGE_DIR) $(COVERAGE_DIR)/fw_fault_cov.o 2>&1` \
+		|| { printf '%s\n' "$$out"; echo "FAIL: gcov could not generate firmware coverage"; exit 1; }; \
+	if [ ! -s bypass_mcu_pic10f320.c.gcov ]; then \
+		echo "FAIL: gcov reported success but did not produce bypass_mcu_pic10f320.c.gcov"; \
+		printf '%s\n' "$$out"; exit 1; \
+	fi
 	@echo "firmware line coverage (fault + happy-path harness):"
 	@test/fault/check_fw_coverage.sh bypass_mcu_pic10f320.c.gcov; rc=$$?; \
 		rm -f *.gcov; exit $$rc
@@ -707,7 +755,8 @@ test-lockstep-gpsim: all
 # Inject deliberate faults into the firmware and the model, and confirm the suite
 # detects each one. NOT part of `make test` (it rebuilds per mutant).
 test-mutation:
-	./test/run_mutation_tests.sh
+	MUTATION_ALLOW_SKIP=$(MUTATION_ALLOW_SKIP) PIC_CC="$(PIC_CC)" \
+		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" ./test/run_mutation_tests.sh
 
 # The full validation suite (everything that gates; mutation is separate).
 test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim \
@@ -808,7 +857,8 @@ help:
 	@echo "                  one WDT-reset recovery per fault (standalone; needs gpsim-dev)"
 	@echo "  test-lockstep-gpsim  lock-step the real HEX vs the model in gpsim: assert ctx_"
 	@echo "                  matches the model every loop iteration (standalone; needs gpsim-dev)"
-	@echo "  test-mutation   inject firmware/model faults, verify the suite kills them"
+	@echo "  test-mutation   inject firmware/model faults; ALL must run and be killed"
+	@echo "                  (MUTATION_ALLOW_SKIP=1 permits an explicit partial local run)"
 	@echo "Analysis:"
 	@echo "  analyze         cppcheck bug-finding + MISRA-C:2012 (static analysis)"
 	@echo "  analyze-cppcheck / analyze-misra  individual analysis passes"
@@ -822,4 +872,5 @@ help:
 	@echo "  clean           remove build + coverage artifacts"
 	@echo "  coverage-clean  remove only coverage artifacts"
 	@echo "Overrides: PIC_VARIANT=, PIC_CC=, PIC_DFP=, COVERAGE_MIN=, BUILD_DIR=,"
-	@echo "           PIC_SOAK_DURATION_MS=, HOST_CC=, CPPCHECK=, GPSIM="
+	@echo "           PIC_SOAK_DURATION_MS=, HOST_CC=, CPPCHECK=, GPSIM=, GCOV=,"
+	@echo "           MUTATION_ALLOW_SKIP=0|1"

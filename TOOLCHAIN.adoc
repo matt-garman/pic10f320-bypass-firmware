@@ -12,11 +12,12 @@ translation unit (`bypass_mcu_pic10f320.c`) built with XC8, and a host-side
 test/validation suite (the vendored reference model, the formal proofs, and the
 firmware<->model equivalence/fault harnesses) built with the host compiler.
 
-Every analysis/test target SKIPS CLEANLY (exit 0) when its tool is absent, so a
-partial toolchain still runs whatever it can.  The release pipeline
-(`scripts/make-release.sh` / `.github/workflows/release.yml`) is the exception:
-it FAILS LOUD on any missing tool, because a release gate must never go green on
-a check that silently did nothing.
+Optional analysis/simulator targets may SKIP CLEANLY when their tools are absent,
+so a partial development toolchain can still run useful checks. Build and
+coverage gates instead FAIL LOUD on missing or malformed output. Mutation testing
+also requires every mutant by default; `MUTATION_ALLOW_SKIP=1` permits an
+explicitly partial local report. CI and the release pipeline never enable that
+override and fail on any missing tool or skipped gate.
 
 == Development / CI platform
 
@@ -129,8 +130,8 @@ equivalence/fault harnesses build and run on the host (no PIC hardware needed).
   sudo apt install gpsim-dev libglib2.0-dev
 
   # XC8 V3.10 + the PIC10-12Fxxx_DFP pack are separate Microchip downloads
-  # (see the PIC toolchain section above).  Without them, the build/CONFIG/gpsim
-  # targets skip cleanly and the host-side model/formal suite is unaffected.
+  # (see the PIC toolchain section above). Without them, build-dependent targets
+  # fail; independent host-side model/formal targets remain usable.
 
 The CI workflow (`.github/workflows/ci.yml`) installs exactly this set on a
 pinned ubuntu-24.04 runner: gpsim + cppcheck + cbmc + gcc + python3 from apt, and

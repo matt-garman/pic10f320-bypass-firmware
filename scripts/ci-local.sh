@@ -162,7 +162,7 @@ run_step "verify job: make test-variants" make test-variants
 if [ "$PR_MODE" -eq 1 ]; then
 	log "skipping stress job (--pr mirrors CI, which gates it off pull_request events)"
 else
-	run_step "stress job: make test-mutation" make test-mutation
+	run_step "stress job: make test-mutation" make test-mutation MUTATION_ALLOW_SKIP=0
 fi
 
 # ----------------------------------------------------------------------------

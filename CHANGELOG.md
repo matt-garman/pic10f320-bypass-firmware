@@ -33,6 +33,12 @@ file is the human-readable summary of *what changed*.
   `cd4053-mute`, `tq2-relay` — with each `cd4053-*` image serving both the CD4053
   and the pin-compatible TMUX4053 board. Updated the actuation, gpsim, and mutation
   tests, the Makefile variant machinery, and the documentation accordingly.
+- Made validation and release gates fail closed: successful XC8 invocations must
+  produce the expected HEX and a parseable flash/memory summary; gcov must run,
+  produce its annotation, and report a parseable percentage; mutation testing
+  requires every mutant to run unless an explicitly partial local mode is
+  requested; and release CI now requires exact equality among the Makefile's
+  expected image set, committed HEX files, `SHA256SUMS` entries, and fresh builds.
 
 ## [0.9.3] - 2026-07-06
 

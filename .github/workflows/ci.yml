@@ -211,4 +211,4 @@ jobs:
           key: microchip-xc8-${{ env.XC8_VERSION }}-dfp-${{ env.DFP_VERSION }}
 
       - name: Mutation suite
-        run: make test-mutation
+        run: make test-mutation MUTATION_ALLOW_SKIP=0

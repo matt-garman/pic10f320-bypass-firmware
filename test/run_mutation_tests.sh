@@ -23,6 +23,14 @@
 
 set -u
 
+MUTATION_ALLOW_SKIP="${MUTATION_ALLOW_SKIP:-0}"
+PIC_CC="${PIC_CC:-/opt/microchip/xc8/v3.10/bin/xc8-cc}"
+GPSIM="${GPSIM:-gpsim}"
+case "$MUTATION_ALLOW_SKIP" in
+    0|1) ;;
+    *) echo "ERROR: MUTATION_ALLOW_SKIP must be 0 or 1 (got '$MUTATION_ALLOW_SKIP')" >&2; exit 2 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ_DIR="$(dirname "$SCRIPT_DIR")"
 
@@ -106,7 +114,7 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@hw_relay_reset_pin_set_high(); // pulse reset coil@hw_relay_set_pin_set_high(); // MUTANT@	PIC_VARIANT=tq2-relay test-actuation	FW relay BYPASS pulses the SET coil instead of RESET (relay latches backwards)"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_CTL1     (1U) // RA1@#  define CD4053_CTL1     (2U) // MUTANT@;s@#  define CD4053_CTL2     (2U) // RA2@#  define CD4053_CTL2     (1U) // MUTANT@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute CTL1/CTL2 pins swapped (mute applied to wrong control; mid-mute LATA pattern wrong, settles to same LATA so equiv/gpsim miss it)"
-"bypass_mcu_pic10f320.c	s@    hw_x4053_ctl1_high(); // MUTE@    hw_x4053_ctl1_low(); // MUTANT: reassert ENGAGED at startup\\n    hw_x4053_ctl2_low();\\n\\n    hw_x4053_ctl1_high(); // MUTE@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute startup reasserts ENGAGED before MUTE, traversing INVALID/ENGAGED routing instead of remaining continuously in BYPASS"
+"bypass_mcu_pic10f320.c	s@    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@    hw_x4053_ctl1_low(); // MUTANT: reassert ENGAGED at startup\\n    hw_x4053_ctl2_low();\\n\\n    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute startup reasserts ENGAGED before MUTE, traversing INVALID/ENGAGED routing instead of remaining continuously in BYPASS"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------
 "test/model/bypass_pure.c	s@{ ++counter; }@{ --counter; }@	test-host	MODEL integrator increment becomes decrement"
 "test/model/bypass_pure.c	s@ctx.debounce_counter >= PRESSED_THRESH@ctx.debounce_counter > PRESSED_THRESH@	test-host	MODEL press threshold off-by-one (>= becomes >)"
@@ -152,14 +160,19 @@ for vt in "PIC_VARIANT=tq2-relay test-actuation" "PIC_VARIANT=cd4053-mute test-a
 done
 # gpsim baseline (skip cleanly if gpsim/XC8 absent -> gpsim mutants are skipped).
 GPSIM_OK=0
-if make -C "$BASE" test-gpsim >/dev/null 2>&1 && command -v gpsim >/dev/null 2>&1 \
-   && { [ -x /opt/microchip/xc8/v3.10/bin/xc8-cc ] || command -v xc8-cc >/dev/null 2>&1; }; then
+if make -C "$BASE" test-gpsim >/dev/null 2>&1 && command -v "$GPSIM" >/dev/null 2>&1 \
+   && { [ -x "$PIC_CC" ] || command -v "$PIC_CC" >/dev/null 2>&1; }; then
     GPSIM_OK=1; echo "baseline test-gpsim: PASS (gpsim mutants ENABLED)"
 else
     echo "test-gpsim baseline unavailable -> gpsim-killed mutants will be SKIPPED"
 fi
 rm -rf "$BASE"
 [ "$base_fail" -eq 0 ] || exit 2
+if [ "$GPSIM_OK" -eq 0 ] && [ "$MUTATION_ALLOW_SKIP" -ne 1 ]; then
+    echo "ERROR: complete mutation evaluation requires XC8 + gpsim; no mutant may be skipped." >&2
+    echo "       Install the full toolchain, or set MUTATION_ALLOW_SKIP=1 for an explicitly partial local run." >&2
+    exit 2
+fi
 echo
 
 killed=0; survived=0; errored=0; skipped=0; idx=0
@@ -200,5 +213,13 @@ if [ "$survived" -ne 0 ]; then
     for s in "${SURVIVORS[@]}"; do echo "  - $s"; done
 fi
 if [ "$survived" -ne 0 ] || [ "$errored" -ne 0 ]; then exit 1; fi
-echo "all evaluated mutants killed: the suite detects every injected fault."
+if [ "$skipped" -ne 0 ]; then
+    if [ "$MUTATION_ALLOW_SKIP" -ne 1 ]; then
+        echo "ERROR: $skipped mutant(s) skipped; complete mutation gate did not run." >&2
+        exit 1
+    fi
+    echo "PARTIAL: all evaluated mutants killed, but $skipped mutant(s) were explicitly allowed to skip."
+    exit 0
+fi
+echo "all mutants ran and were killed: the suite detects every injected fault."
 exit 0

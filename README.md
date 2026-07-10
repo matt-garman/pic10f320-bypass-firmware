@@ -220,8 +220,9 @@ validated images are published under [`release/`](release/) and as
 [GitHub Releases](https://github.com/matt-garman/pic10f320-bypass-firmware/releases).
 Each release pins the image bytes with a `SHA256SUMS` manifest, and the
 tag-triggered CI rebuilds from source on a clean runner and **fails the release
-unless the images reproduce those hashes bit-for-bit** — so a published binary is
-provably what the tested source compiles to. See
+unless the expected, committed, checksummed, and freshly-built image sets match
+exactly and reproduce those hashes bit-for-bit** — so no extra or omitted binary
+can bypass the reproduction gate. See
 [`release/README.md`](release/README.md) for the trust model and verification
 steps. Maintainers stage a release with `make release VERSION=vX.Y.Z` (see
 `scripts/make-release.sh`).
