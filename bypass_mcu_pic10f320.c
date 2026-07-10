@@ -321,10 +321,6 @@ static void hw_x4053_ctl2_low(void)  { LATA |=  (uint8_t)(1U << CD4053_CTL2); }
 // See "Improved Scheme With Muting" in parent project
 // DESIGN_DOCUMENTATION.adoc
 static void hw_set_bypass_state(void) {
-	// Exact pull-up configuration integrity: RA3 latch set, RA0..RA2 clear,
-	// and global weak pull-ups enabled.  Extra output-pin latches are faults
-	// because a TRISA upset would make them electrically active.
-
     hw_led_pin_set_low(); // dark status LED
 
     hw_x4053_ctl1_high(); // ENGAGED -> MUTE
@@ -455,6 +451,11 @@ static pin_state_t hw_read_footswitch(void) {
 // effect on the right operand of &&), a rule from which the project does not
 // deviate.
 static uint8_t hw_footswitch_pullup_intact(void) {
+
+    // Exact pull-up configuration integrity: RA3 latch set, RA0..RA2 clear,
+    // and global weak pull-ups enabled.  Extra output-pin latches are faults
+    // because a TRISA upset would make them electrically active.
+
     uint8_t wpua_latches = (uint8_t)(WPUA & 0x0FU);
     uint8_t wpu_global   = (uint8_t)OPTION_REGbits.nWPUEN; // 0 = enabled
 
