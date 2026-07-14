@@ -205,7 +205,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .NOTPARALLEL:
 
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
-        test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build test-release-images \
+        test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
@@ -897,6 +897,15 @@ test-target-gpsim:
 	@echo "=== target fault/lock-step/I-O PASS (variant $(PIC_VARIANT)) ==="
 
 test-target-variants:
+	@if [ "$(if $(strip $(PIC_VARIANTS_ALL)),yes,no)" != yes ]; then \
+		echo "FAIL: PIC_VARIANTS_ALL must not be empty" >&2; exit 2; \
+	fi; \
+	if [ "$(words $(PIC_VARIANTS_ALL))" -ne "$(words $(sort $(PIC_VARIANTS_ALL)))" ]; then \
+		echo "FAIL: PIC_VARIANTS_ALL must not contain duplicate names" >&2; exit 2; \
+	fi; \
+	if [ "$(if $(filter-out $(PIC_TARGET_VARIANTS_SUPPORTED),$(PIC_VARIANTS_ALL)),yes,no)" = yes ]; then \
+		echo "FAIL: PIC_VARIANTS_ALL contains unsupported names; supported: $(PIC_TARGET_VARIANTS_SUPPORTED)" >&2; exit 2; \
+	fi
 	@for v in $(PIC_VARIANTS_ALL); do \
 		echo "===================== TARGET VARIANT $$v ====================="; \
 		$(MAKE) --no-print-directory PIC_VARIANT=$$v test-target-gpsim || exit 1; \
@@ -919,6 +928,10 @@ test-pic-build:
 test-release-images:
 	./test/test_release_images.sh
 
+# Host-only proof that the authoritative target aggregate rejects bad matrices.
+test-target-matrix:
+	./test/test_target_matrix.sh
+
 # Internal probe used by test/test_make_serialization.sh. Independent top-level
 # makes must never execute this critical section concurrently.
 test-make-lock-probe:
@@ -937,7 +950,7 @@ test-build-serialization:
 	./test/test_make_serialization.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-build-serialization test-soak-timing \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix test-build-serialization test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -948,7 +961,8 @@ test: all analyze test-config test-host test-formal test-equiv test-actuation te
 # pattern, so each is built and validated independently (the parent project
 # validates all variants the same way). The cd4053-* images drive both the CD4053
 # and the pin-compatible TMUX4053 board (one unified control-pin polarity).
-PIC_VARIANTS_ALL ?= cd4053-simple cd4053-mute tq2-relay
+override PIC_TARGET_VARIANTS_SUPPORTED := cd4053-simple cd4053-mute tq2-relay
+PIC_VARIANTS_ALL ?= $(PIC_TARGET_VARIANTS_SUPPORTED)
 test-variants:
 	@for v in $(PIC_VARIANTS_ALL); do \
 		echo "===================== VARIANT $$v ====================="; \
@@ -1022,6 +1036,7 @@ help:
 	@echo "  test-gpsim-wrappers  fake-gpsim process failure/timeout checks (included in test)"
 	@echo "  test-pic-build  fake-XC8 image-generation and Intel-HEX checks (included in test)"
 	@echo "  test-release-images  exact committed/listed/fresh image verification (included in test)"
+	@echo "  test-target-matrix  fail-closed target-variant matrix checks (included in test)"
 	@echo "  test-build-serialization  independent Make invocation lock regression"
 	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"

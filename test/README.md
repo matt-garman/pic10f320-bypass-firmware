@@ -64,6 +64,7 @@ wait rather than cross-linking variants or replacing an executing test binary.
 | **Built-HEX GPIO transitions and timing** | `test-io-gpsim` | The XC8-built instruction stream keeps exact `TRISA=0x08`, drives physical `PORTA[2:0]` equal to `LATA[2:0]`, follows each complete legal startup/engage/bypass transition sequence, never energizes both relay coils, and holds mute/coil pulse states for the expected simulator-cycle duration. | libgpsim |
 | **Firmware on a simulated core** | `test-gpsim` | The real built HEX behaves correctly on a simulated PIC10F320, including the variant's full BYPASS and ENGAGED control-pin pattern (two scenarios). | gpsim |
 | gpsim wrapper fail-closed checks | `test-gpsim-wrappers` | Complete snapshots cannot hide a nonzero gpsim exit or timeout in either functional wrapper. | Bash + fake gpsim |
+| Target-matrix fail-closed checks | `test-target-matrix` | Valid matrices run once per variant; empty, duplicate, and unsupported matrices fail before any target invocation. | Bash + fake recursive Make |
 | Soak timing contract | `test-soak-timing` | Native soak timing macros reject non-integral, non-positive, and overflowing values; real release CLI durations cannot be shorter than 24 simulated hours. | host C/C++ compilers + Bash |
 | Model coverage gate | `coverage-check` | Model line coverage ≥ 95% (host + formal combined; currently 100%). | gcov |
 | Firmware coverage gate | `coverage-check-fw` | Every *firmware* line is covered on the host except the allow-listed watchdog-reset fault path. | gcov |
@@ -73,7 +74,9 @@ wait rather than cross-linking variants or replacing an executing test binary.
 `make test-target-variants`, a fail-closed aggregate that requires
 `FAULT-INJECT PASS`, `LOCK-STEP PASS`, and `TARGET-IO PASS` for every variant.
 The three individual libgpsim targets remain skip-clean for ad-hoc development,
-but the aggregate rejects a skip or incomplete run. Standalone:
+but the aggregate rejects a skip or incomplete run. It validates the complete
+matrix before execution so empty, duplicate, or unsupported names cannot produce
+an all-variants PASS or a misleading partial run. Standalone:
 `make test-mutation`, `make test-soak` (the long-run libgpsim soak), and
 `make test-symbolic-klee` (the symbolic step check under KLEE, if installed).
 
