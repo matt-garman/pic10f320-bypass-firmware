@@ -38,6 +38,9 @@ file is the human-readable summary of *what changed*.
   drives both. Mirrors the parent project's fix.
 
 ### Changed
+- Serialized complete Make invocations per worktree and disabled internal
+  parallel recipes, preventing independent variant tests from racing over shared
+  XC8 intermediates, host objects/binaries, coverage data, and simulator logs.
 - Made both gpsim functional wrappers reject simulator failures and timeouts even
   when complete, otherwise-valid register snapshots were emitted first.
 - Made soak timing fail closed: native timing inputs now have compile-time type

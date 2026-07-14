@@ -100,6 +100,8 @@ equivalence/fault harnesses build and run on the host (no PIC hardware needed).
 
   gcc:          13.x  (Ubuntu 24.04; package: gcc) -- the default HOST_CC.
   clang:        18.x  (optional; set HOST_CC=clang to override.)
+  flock:        util-linux (required) -- serializes complete Make/release
+                invocations that share one worktree's build/test artifacts.
 
   Either compiler works for all test/* host binaries.  The Makefile uses gcc by
   default (HOST_CC := gcc).
@@ -130,7 +132,7 @@ equivalence/fault harnesses build and run on the host (no PIC hardware needed).
 == Reproducing the environment (Ubuntu 24.04)
 
   # host + analysis + simulator (apt):
-  sudo apt install make gcc g++ gpsim gpsim-dev libglib2.0-dev cppcheck cbmc python3
+  sudo apt install make util-linux gcc g++ gpsim gpsim-dev libglib2.0-dev cppcheck cbmc python3
 
   # The libgpsim development packages above are regular-CI requirements for
   # `make test-target-variants` and release requirements for `make test-soak`.
@@ -140,7 +142,7 @@ equivalence/fault harnesses build and run on the host (no PIC hardware needed).
   # fail; independent host-side model/formal targets remain usable.
 
 The CI workflow (`.github/workflows/ci.yml`) installs exactly this set on a
-pinned ubuntu-24.04 runner: gpsim/libgpsim + cppcheck + cbmc + gcc/g++ + python3
+pinned ubuntu-24.04 runner: util-linux + gpsim/libgpsim + cppcheck + cbmc + gcc/g++ + python3
 from apt, and XC8 + the DFP fetched from Microchip and cached.
 
 == Version pinning strategy

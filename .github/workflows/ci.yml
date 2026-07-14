@@ -76,7 +76,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            make gcc g++ gpsim gpsim-dev libglib2.0-dev pkg-config \
+            make util-linux gcc g++ gpsim gpsim-dev libglib2.0-dev pkg-config \
             cppcheck cbmc python3 unzip wget
 
       - name: Restore cached XC8 + DFP
@@ -182,7 +182,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            make gcc g++ gpsim gpsim-dev libglib2.0-dev pkg-config \
+            make util-linux gcc g++ gpsim gpsim-dev libglib2.0-dev pkg-config \
             cppcheck cbmc python3 unzip wget
 
       - name: Restore cached XC8 + DFP

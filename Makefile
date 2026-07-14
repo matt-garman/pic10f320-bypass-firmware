@@ -1,3 +1,15 @@
+# The build and validation recipes intentionally share XC8 intermediates, host
+# objects, coverage data, and simulator logs within one worktree. Route every
+# top-level invocation through one worktree lock; recursive makes inherit the
+# held marker through MAKEFLAGS and execute the real graph below. This prevents
+# independent `make` processes from cross-linking variants or executing a binary
+# while another process replaces it.
+ifneq ($(findstring q,$(firstword $(MAKEFLAGS))),)
+override _MAKE_SERIAL_LOCK_HELD := 1
+endif
+
+ifeq ($(_MAKE_SERIAL_LOCK_HELD),1)
+
 # Makefile -- PIC10F320 bypass firmware (single-file, three output variants)
 #
 # The firmware is tiny; this Makefile carries the validation. The PIC10F320 has
@@ -104,6 +116,7 @@ GPSIM           ?= gpsim
 HOST_CC         ?= gcc
 GCOV            ?= gcov
 AWK             ?= awk
+export PROJECT_MAKE := $(MAKE)
 MUTATION_ALLOW_SKIP ?= 0
 
 # gpsim processor name for the register-level functional test. The per-variant
@@ -189,12 +202,15 @@ FAULT_DRIVER   := test/fault/test_fault.c
 FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $(PIC_OUTPUT_DEF)
 FAULT_INC      := -Itest/equiv -Itest/fault
 
+.NOTPARALLEL:
+
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build test-release-images \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
-        test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
+        test-fault test-fault-variants test-mutation test-build-serialization test-make-lock-probe \
+        coverage coverage-check coverage-check-fw \
         coverage-clean clean
 
 # Build + enforce the flash-word budget. XC8 scatters intermediates
@@ -903,8 +919,25 @@ test-pic-build:
 test-release-images:
 	./test/test_release_images.sh
 
+# Internal probe used by test/test_make_serialization.sh. Independent top-level
+# makes must never execute this critical section concurrently.
+test-make-lock-probe:
+	@mkdir -p "$(BUILD_DIR)"; \
+	active="$(BUILD_DIR)/.make-lock-probe-active"; \
+	if ! mkdir "$$active" 2>/dev/null; then \
+		echo "FAIL: concurrent Make recipes overlapped" >&2; exit 1; \
+	fi; \
+	cleanup_probe() { rmdir "$$active" 2>/dev/null || true; }; \
+	trap cleanup_probe 0 1 2 15; \
+	printf 'start %s\n' "$(PROBE_ID)" >> "$(PROBE_LOG)"; \
+	sleep 0.5; \
+	printf 'end %s\n' "$(PROBE_ID)" >> "$(PROBE_LOG)"
+
+test-build-serialization:
+	./test/test_make_serialization.sh
+
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-soak-timing \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-build-serialization test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -989,6 +1022,7 @@ help:
 	@echo "  test-gpsim-wrappers  fake-gpsim process failure/timeout checks (included in test)"
 	@echo "  test-pic-build  fake-XC8 image-generation and Intel-HEX checks (included in test)"
 	@echo "  test-release-images  exact committed/listed/fresh image verification (included in test)"
+	@echo "  test-build-serialization  independent Make invocation lock regression"
 	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
@@ -1027,3 +1061,20 @@ help:
 	@echo "Overrides: PIC_VARIANT=, PIC_CC=, PIC_DFP=, COVERAGE_MIN=, BUILD_DIR=,"
 	@echo "           PIC_SOAK_DURATION_MS=, HOST_CC=, CPPCHECK=, GPSIM=, GCOV=,"
 	@echo "           MUTATION_ALLOW_SKIP=0|1"
+
+else
+
+_MAKE_REQUESTED_GOALS := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+.DEFAULT_GOAL := all
+.PHONY: _make-serialized-invocation $(_MAKE_REQUESTED_GOALS)
+
+$(_MAKE_REQUESTED_GOALS): _make-serialized-invocation
+	@:
+
+_make-serialized-invocation:
+	@command -v flock >/dev/null 2>&1 \
+		|| { echo "ERROR: flock is required to serialize shared build artifacts" >&2; exit 1; }
+	@flock "$(CURDIR)/.make.lock" $(MAKE) --no-print-directory \
+		_MAKE_SERIAL_LOCK_HELD=1 $(_MAKE_REQUESTED_GOALS)
+
+endif

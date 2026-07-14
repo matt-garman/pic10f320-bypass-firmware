@@ -31,5 +31,8 @@ coverage/
 # out of release/<version>/) and must not trip the clean-tree release gate.
 /commit_msg.txt
 
+# Persistent inode used by the Makefile to serialize whole-worktree builds.
+/.make.lock
+
 # claude code
 .claude/
