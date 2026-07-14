@@ -14,6 +14,9 @@ file is the human-readable summary of *what changed*.
 ## [Unreleased]
 
 ### Fixed
+- **PIC target-fault completion.** Simulator progress failures now abort their
+  current scenario instead of continuing with stale state, and each output
+  variant must execute its exact expected number of checks before reporting PASS.
 - **PIC lock-step stimulus phase alignment.** The first footswitch input is now
   applied from the identified loop-`CLRWDT` callback, guaranteeing the next
   iteration samples it before the harness compares firmware and model state.

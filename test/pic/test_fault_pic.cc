@@ -177,7 +177,16 @@ static NullBuf g_nullbuf;
 // Without this, injecting at the arbitrary phase where the ms-settle happens to
 // halt is racy for the every-tick-rewritten ctx_ fields (it depends on FOSC and
 // per-variant loop layout).
+#define PROGRAM_WORDS 0x100u
 #define CLRWDT_CALIB_MS 8u
+
+// Two startup checks + CLRWDT discovery + no-injection control + 18 injections.
+// The simple variant also verifies restoration after its RA2 negative control.
+#if defined(OUTPUT_CD4053_SIMPLE)
+#  define EXPECTED_CHECKS 23u
+#else
+#  define EXPECTED_CHECKS 22u
+#endif
 
 // ---- Sim globals ------------------------------------------------------------
 static pic_processor   *g_cpu      = nullptr;
@@ -239,7 +248,7 @@ static Register *fetch_sfr(unsigned addr, const char *token) {
 // Advance the simulation by `ms` ms of simulated time. Cycle break at the
 // target; resume run() until the target cycle is reached (a WDT reset may halt
 // run() early and/or fire the notify callback -- either way we resume).
-static void run_ms(unsigned ms) {
+static bool run_ms(unsigned ms) {
     guint64 target = get_cycles().get() + (guint64)ms * CYCLES_PER_MS;
     get_cycles().set_break(target);
     int resumes = 0;
@@ -248,9 +257,10 @@ static void run_ms(unsigned ms) {
         if (++resumes > MAX_RESUMES_PER_MS) {
             fprintf(stderr, "FATAL: core not advancing (wedged?) at run_ms\n");
             get_cycles().clear_break(target);
-            return;
+            return false;
         }
     }
+    return true;
 }
 
 // Identify the loop CLRWDT behaviorally. init() and the main loop each contain
@@ -265,14 +275,18 @@ struct ClrwdtCounter : public TriggerObject {
 
 static bool identify_loop_clrwdt(void) {
     std::vector<ClrwdtCounter *> hooks;
-    for (unsigned addr = 0; addr < 0x100u; ++addr) {
+    for (unsigned addr = 0; addr < PROGRAM_WORDS; ++addr) {
         if (g_cpu->pma->get_opcode(addr) == CLRWDT_OPCODE) {
             ClrwdtCounter *hook = new ClrwdtCounter(addr);
             hooks.push_back(hook);
             get_bp().set_notify_break(g_cpu, addr, hook);
         }
     }
-    run_ms(CLRWDT_CALIB_MS);
+    if (!run_ms(CLRWDT_CALIB_MS)) {
+        g_checks++;
+        g_fails++;
+        return false;
+    }
     long best = -1;
     for (ClrwdtCounter *hook : hooks) {
         if (hook->hits > best) {
@@ -318,7 +332,11 @@ static void inject_case(const char *label, unsigned addr, const char *token,
                         bool absolute, unsigned val, unsigned expected_resets,
                         const char *note) {
     footsw_set(0);                 // released: quiescent, only the SFR can trip
-    run_ms(SETTLE_MS);             // (re)reach the main loop after any prior reset
+    if (!run_ms(SETTLE_MS)) {      // (re)reach the main loop after any prior reset
+        g_checks++;
+        g_fails++;
+        return;
+    }
     if (!advance_to_loop_clrwdt()) {
         g_checks++;
         g_fails++;
@@ -348,7 +366,12 @@ static void inject_case(const char *label, unsigned addr, const char *token,
         return;
     }
 
-    run_ms(WDT_RESET_WINDOW_MS);
+    if (!run_ms(WDT_RESET_WINDOW_MS)) {
+        g_checks++;
+        g_fails++;
+        if (expected_resets == 0u) r->put_value(cur);
+        return;
+    }
     guint64 delta = g_resets - before;
 
     g_checks++;
@@ -378,11 +401,19 @@ static void inject_case(const char *label, unsigned addr, const char *token,
 // No-injection control: a quiescent device must NOT reset in a full window.
 static void control_case(void) {
     footsw_set(0);
-    run_ms(SETTLE_MS);
+    if (!run_ms(SETTLE_MS)) {
+        g_checks++;
+        g_fails++;
+        return;
+    }
     guint64 before = g_resets;
     printf("  control (no injection)\n");
     fflush(stdout);
-    run_ms(WDT_RESET_WINDOW_MS);
+    if (!run_ms(WDT_RESET_WINDOW_MS)) {
+        g_checks++;
+        g_fails++;
+        return;
+    }
     guint64 delta = g_resets - before;
     g_checks++;
     if (delta == 0u) {
@@ -452,7 +483,9 @@ int main() {
     g_fsw_node->attach_stimulus(ra3);
 
     footsw_set(0);                              // released at power-on
-    run_ms(SETTLE_MS);                          // let init() settle, reach main loop
+    if (!run_ms(SETTLE_MS)) {                   // let init() settle, reach main loop
+        return 1;
+    }
 
     // Arm reset counting only now (skip the power-on pass through 0x000).
     get_bp().set_notify_break(g_cpu, 0x000, &g_reset_notifier);
@@ -526,6 +559,12 @@ int main() {
                 "->2: > ENGAGED (gate-only)");
     inject_case("ctx.debounce_counter", CTX_DEBOUNCE_COUNTER, nullptr, true, 0xFF, 1,
                 "->255: > RELEASE_THRESH (gate-only)");
+
+    if (g_checks != EXPECTED_CHECKS) {
+        g_fails++;
+        fprintf(stderr, "FAIL: executed %u checks, expected %u for this variant\n",
+                g_checks, EXPECTED_CHECKS);
+    }
 
     int pass = (g_fails == 0);
     printf("\nFAULT-INJECT %s: %u checks, %u failures\n",
