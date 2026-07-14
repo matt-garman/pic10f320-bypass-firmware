@@ -14,6 +14,9 @@ file is the human-readable summary of *what changed*.
 ## [Unreleased]
 
 ### Fixed
+- **PIC lock-step stimulus phase alignment.** The first footswitch input is now
+  applied from the identified loop-`CLRWDT` callback, guaranteeing the next
+  iteration samples it before the harness compares firmware and model state.
 - **Analog-switch control-pin drive polarity (CD4053 / TMUX4053).** The
   `-DBYPASS_X4053_DIRECT_DRIVE` "direct-drive" polarity used by the former
   `tmux4053-simple` / `tmux4053-mute` variants inverted the analog-switch control

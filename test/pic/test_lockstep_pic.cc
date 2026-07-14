@@ -33,8 +33,9 @@
 //   loop's CLRWDT (the end-of-loop "pet the dog"): it fires once per completed loop
 //   iteration, with ctx_ fully settled (post state-machine, post hw_set_*_state()).
 //   That callback is the exact analogue of the host harness's CLRWDT hook
-//   (test/equiv/fw_harness.c :: bypass_equiv_on_clrwdt): it reads ctx_, steps the
-//   model, compares, and presents the footswitch level the NEXT iteration will read.
+//   (test/equiv/fw_harness.c :: bypass_equiv_on_clrwdt): after the first callback
+//   primes the pin, each callback reads ctx_, steps the model with the input just
+//   consumed, compares, and presents the level the NEXT iteration will read.
 //
 //   Two subtleties, both confirmed empirically (a de-risk spike) and handled here:
 //     1. There are two CLRWDT sites (init + loop). Their addresses are NOT ordered
@@ -222,39 +223,51 @@ static unsigned g_loop_addr = 0;
 
 // Lock-step stimulus + running model state.
 static std::vector<uint8_t> g_stim;   // per-iteration footswitch: 1=pressed
-static size_t   g_i         = 0;      // next iteration index to compare
-static state_t  g_model;              // running model state (post last step)
+static size_t   g_i         = 0;     // next stimulus index to APPLY to the pin
+static size_t   g_applied   = 0;     // stimulus index now on the pin (just integrated)
+static bool     g_primed    = false; // false until the first pin value is applied
+static size_t   g_compared  = 0;     // number of lock-step comparisons performed
+static state_t  g_model;             // running model state (post last step)
 static bool     g_done      = false;
 static unsigned g_toggles   = 0;
 static unsigned g_mismatch  = 0;
 
-// One completed loop iteration: the firmware consumed g_stim[g_i] this iteration.
+// Called at every loop CLRWDT during PHASE_LOCKSTEP. The firmware samples the
+// footswitch at the top of each main-loop iteration and reaches CLRWDT at the
+// bottom, so the ctx_ read here reflects the pin value applied at the previous
+// CLRWDT. Compare that consumed input first, then apply the next input for the
+// iteration about to run. The first callback only primes stimulus[0].
 static void lockstep_on_iteration(void) {
     if (g_done) return;
 
-    state_t fw = fw_ctx();                       // firmware post-step state (ctx_)
-    step_result_t r = step(g_model, g_stim[g_i]); // model post-step state
-    g_model = r.next;
-    if (r.toggled) g_toggles++;
-    mark_state_seen(g_model);
+    if (g_primed) {
+        state_t fw = fw_ctx();
+        step_result_t r = step(g_model, g_stim[g_applied]);
+        g_model = r.next;
+        if (r.toggled) g_toggles++;
+        mark_state_seen(g_model);
 
-    g_checks++;
-    if (!state_eq(fw, g_model)) {
-        if (g_mismatch < 5u) {
-            fprintf(stderr,
-                "FAIL: lock-step divergence at iter %zu (in=%u): "
-                "fw(ps=%u es=%u dc=%u) != model(ps=%u es=%u dc=%u)\n",
-                g_i, (unsigned)g_stim[g_i], fw.program_state, fw.effect_state,
-                fw.debounce_counter, g_model.program_state, g_model.effect_state,
-                g_model.debounce_counter);
+        g_checks++;
+        g_compared++;
+        if (!state_eq(fw, g_model)) {
+            if (g_mismatch < 5u) {
+                fprintf(stderr,
+                    "FAIL: lock-step divergence at iter %zu (in=%u): "
+                    "fw(ps=%u es=%u dc=%u) != model(ps=%u es=%u dc=%u)\n",
+                    g_applied, (unsigned)g_stim[g_applied], fw.program_state,
+                    fw.effect_state, fw.debounce_counter, g_model.program_state,
+                    g_model.effect_state, g_model.debounce_counter);
+            }
+            g_fails++;
+            g_mismatch++;
         }
-        g_fails++;
-        g_mismatch++;
     }
 
-    g_i++;
     if (g_i < g_stim.size()) {
-        footsw_set(g_stim[g_i]);                 // present the NEXT iteration's input
+        footsw_set(g_stim[g_i]);
+        g_applied = g_i;
+        g_i++;
+        g_primed = true;
     } else {
         g_done = true;
     }
@@ -372,12 +385,12 @@ int main() {
         }
     }
 
-    // Lock-step: present the first input, then let the per-iteration hook drive the
-    // comparison. Bound the run generously (worst case ~13 ms/toggling iteration).
+    // Leave the pin RELEASED through the anchor. The first lock-step CLRWDT
+    // applies stimulus[0] at a fresh iteration boundary instead of dropping it
+    // when calibration happened to pause after the loop's input sample.
     build_stimulus();
     g_phase = PHASE_LOCKSTEP;
-    g_i = 0; g_done = false;
-    footsw_set(g_stim[0]);
+    g_i = 0; g_applied = 0; g_primed = false; g_compared = 0; g_done = false;
     guint64 hardcap_ms = (guint64)LOCKSTEP_ITERS * 3u + 2000u; // generous
     guint64 t0 = get_cycles().get();
     while (!g_done && (get_cycles().get() - t0) < hardcap_ms * CYCLES_PER_MS) {
@@ -395,7 +408,7 @@ int main() {
     if (reachable_states_unvisited() != 0) { g_fails++; fprintf(stderr, "FAIL: stimulus left reachable model states unvisited\n"); }
 
     printf("  lock-step: %zu iterations compared, %u toggles, %u mismatches\n",
-           g_i, g_toggles, g_mismatch);
+           g_compared, g_toggles, g_mismatch);
     int pass = (g_fails == 0);
     printf("LOCK-STEP %s: %u checks, %u failures\n", pass ? "PASS" : "FAIL", g_checks, g_fails);
     return pass ? 0 : 1;
