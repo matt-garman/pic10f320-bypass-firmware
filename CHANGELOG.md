@@ -59,6 +59,9 @@ file is the human-readable summary of *what changed*.
   missing development headers, symbols, or partial/skip-clean runs fail closed.
 
 ### Added
+- Added seven built-HEX target mutations for startup, pull-up/direction/analog
+  fault, mute-transition, and pulse-timing coverage, plus a short libgpsim soak
+  mutation proving removal of the main-loop WDT pet is detected.
 - Built-HEX GPIO transition/timing validation (`test-io-gpsim`): requires exact
   `TRISA=0x08`, checks physical `PORTA` follows `LATA`, asserts complete legal
   startup/engage/bypass transition traces for every output stage, prohibits both

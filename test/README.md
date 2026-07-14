@@ -262,30 +262,33 @@ the ENGAGED full-`LATA` check.
 
 Confirms the suite has teeth: it injects deliberate faults into the firmware and
 the model on a throwaway copy and checks each is detected. Firmware logic mutants
-are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants
-(e.g. a neutered pull-up or output-pin check) by `test-fault`; firmware
-control-pin mutants — a swapped relay set/reset coil, a defeated mute window, or a
-mis-routed cd4053-simple control pin — by `test-actuation` (the settled and/or
-mid-pulse `LATA` checks); model mutants by `test-host` / `test-model-check`. Not
-part of `make test` (it rebuilds per mutant). Currently 34 mutants (28 firmware +
-6 model), all killed.
+are killed by `test-equiv` / `test-gpsim`; firmware *defensive*-layer mutants by
+host and built-HEX fault injection; control transition/pulse mutants by host
+actuation and the target aggregate; and a removed main-loop WDT pet by a short
+libgpsim soak. Model mutants are killed by `test-host` / `test-model-check`. Not
+part of `make test` (it rebuilds per mutant). The full-tool gate requires all 42
+mutants (36 firmware + 6 model) to run and be killed.
 
-`make test-mutation` is fail-closed: the gpsim-only tick-gating mutant must run,
-and any skipped mutant fails the target. On a development host without XC8/gpsim,
+`make test-mutation` is fail-closed: the gpsim tick-gating, libgpsim target, and
+short-soak WDT-liveness mutants must run, and any skipped mutant fails the target.
+On a development host without the full XC8/gpsim/libgpsim stack,
 `make test-mutation MUTATION_ALLOW_SKIP=1` runs the host-evaluable subset and
 labels the result `PARTIAL`; CI, local-CI reproduction, and release validation
 always leave the override at its strict default `0`.
 
-Almost every firmware mutant is killed by a **host** target (the LED-invert and
-footswitch-polarity mutants diverge on RA0, so they are targeted at `test-equiv`,
+Almost every original firmware mutant is killed by a **host** target (the
+LED-invert and footswitch-polarity mutants diverge on RA0, so they target `test-equiv`,
 which — unlike `test-gpsim` — is never skipped when gpsim is absent), with gpsim a
-redundant second oracle. The **one deliberate
-exception** is the **tick-gating** mutant (the `TMR2IF` clear removed, so the 1 ms
+redundant second oracle. The simulated-core set now deliberately includes the
+**tick-gating** mutant (the `TMR2IF` clear removed, so the 1 ms
 poll never re-blocks and the loop free-runs): tick *gating* is unobservable on the
 host by construction — the host harnesses force `TMR2IF=1` — so gpsim's mid-debounce
 `PRESS1_EARLY` checkpoint is its **sole** killer. That is the correct division of
 labour: whether the tick gates the loop is a simulated-core concern, and this is the
-test that pins it. (The tick's absolute *period* is a separate, bench-only matter —
+test that pins it. Seven built-image target mutants separately prove the physical
+fault/transition/pulse oracles fail on their intended regressions, and a removed
+main-loop `CLRWDT()` is killed only after the soak runs beyond one modeled WDT
+period. (The tick's absolute *period* is a separate, bench-only matter —
 gpsim's TMR2 prescaler model is not faithful across all settings; see *Known gaps*.)
 
 ## Why CONFIG-word verification matters

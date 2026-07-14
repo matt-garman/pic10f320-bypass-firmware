@@ -60,7 +60,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            make gcc g++ gpsim gpsim-dev libglib2.0-dev cppcheck cbmc python3 unzip wget
+            make gcc g++ gpsim gpsim-dev libglib2.0-dev pkg-config \
+            cppcheck cbmc python3 unzip wget
 
       # --- toolchain: XC8 + PIC10-12Fxxx DFP (Microchip downloads) ----------
       - name: Restore cached XC8 + DFP
@@ -90,7 +91,7 @@ jobs:
         run: |
           test -x "${XC8_DIR}/bin/xc8-cc" || { echo "::error::XC8 missing"; exit 1; }
           test -f "${XC8_DFP_ROOT}/xc8/pic/include/proc/pic10f320.h" || { echo "::error::DFP missing"; exit 1; }
-          for t in gpsim cppcheck cbmc gcc c++; do
+          for t in gpsim cppcheck cbmc gcc c++ pkg-config; do
             command -v "$t" >/dev/null || { echo "::error::no $t"; exit 1; }
           done
           # The target aggregate links libgpsim: assert headers + glib so every

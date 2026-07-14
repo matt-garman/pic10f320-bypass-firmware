@@ -892,7 +892,8 @@ test-target-variants:
 # detects each one. NOT part of `make test` (it rebuilds per mutant).
 test-mutation:
 	MUTATION_ALLOW_SKIP=$(MUTATION_ALLOW_SKIP) PIC_CC="$(PIC_CC)" \
-		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" ./test/run_mutation_tests.sh
+		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" PIC_SOAK_CXX="$(PIC_SOAK_CXX)" \
+		PIC_SOAK_GPSIM_INC="$(PIC_SOAK_GPSIM_INC)" ./test/run_mutation_tests.sh
 
 # Isolated fake-XC8 proof of fail-closed PIC image generation.
 test-pic-build:

@@ -10,9 +10,9 @@
 #   FAIL (the mutant is "killed"). A surviving mutant marks a real hole.
 #
 # WHAT IS MUTATED, AND WHAT KILLS IT
-#   - The firmware (bypass_mcu_pic10f320.c): killed by `make test-equiv` (the
-#     firmware<->model trace comparison) and/or `make test-gpsim` (the real HEX in
-#     gpsim). These are the oracles that watch the SHIPPING code.
+#   - The firmware (bypass_mcu_pic10f320.c): killed by host equivalence/actuation/
+#     fault checks, CLI gpsim, the real-HEX target aggregate, or the libgpsim soak.
+#     The target/soak mutants specifically certify the built-image oracles.
 #   - The reference model (test/model/bypass_pure.c) and the model thresholds:
 #     killed by `make test-host` / `make test-model-check` (logic), or by
 #     `make test-equiv` (a model-threshold change diverges from the firmware).
@@ -26,6 +26,10 @@ set -u
 MUTATION_ALLOW_SKIP="${MUTATION_ALLOW_SKIP:-0}"
 PIC_CC="${PIC_CC:-/opt/microchip/xc8/v3.10/bin/xc8-cc}"
 GPSIM="${GPSIM:-gpsim}"
+PIC_SOAK_CXX="${PIC_SOAK_CXX:-c++}"
+PIC_SOAK_GPSIM_INC="${PIC_SOAK_GPSIM_INC:-/usr/include/gpsim}"
+# Longer than gpsim's ~1.057s WDT period, but short enough for mutation CI.
+PIC_SOAK_MUT_MS="${PIC_SOAK_MUT_MS:-2500}"
 case "$MUTATION_ALLOW_SKIP" in
     0|1) ;;
     *) echo "ERROR: MUTATION_ALLOW_SKIP must be 0 or 1 (got '$MUTATION_ALLOW_SKIP')" >&2; exit 2 ;;
@@ -78,7 +82,8 @@ MUTATIONS=(
 # summary would still read "all evaluated mutants killed"). gpsim remains a
 # redundant oracle via the functional scenarios (footswitch_toggle.stc), just not
 # the mutation-kill target. This leaves the tick-cadence mutant below as the sole
-# genuinely gpsim-only kill -- matching the README's "one deliberate exception".
+# original mutant whose sole killer is the CLI gpsim functional wrapper. The
+# target/soak sections below intentionally certify additional simulated-core oracles.
 # The CD4053 control mis-route does NOT move RA0 (it is on RA1), so it is the one
 # wiring fault the RA0-only equivalence test cannot see -- killed host-only by
 # test-actuation's settled-LATA check (it was gpsim-only before that check existed).
@@ -101,8 +106,8 @@ MUTATIONS=(
 # test-actuation/test-fault are blind to it by construction; the real TMR2 in gpsim
 # is the only oracle, caught by footswitch_toggle.stc's mid-debounce PRESS1_EARLY
 # checkpoint (LED must still be OFF ~3.5 ms into the press). This is the deliberate
-# exception to "every firmware mutant is killed by a host target" -- tick timing is
-# unobservable on the host.
+# original exception to host-level kills -- tick timing is unobservable on the
+# host. The target/soak mutants below deliberately exercise built-image layers.
 "bypass_mcu_pic10f320.c	s@PIR1bits.TMR2IF = 0;@@	test-gpsim	FW TMR2IF tick-flag clear removed: 1 ms poll never re-blocks, loop free-runs, debounce window collapses (host forces TMR2IF=1, so only gpsim's PRESS1_EARLY catches it)"
 # --- firmware: blocking-actuation sequencing (killed by the actuation test) --------
 # These corrupt the mid-actuation output of the BLOCKING variants (relay coil
@@ -115,6 +120,18 @@ MUTATIONS=(
 "bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (0U)@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute pre-switch mute window defeated (5->0 ms): audible click on every switch"
 "bypass_mcu_pic10f320.c	s@#  define CD4053_CTL1     (1U) // RA1@#  define CD4053_CTL1     (2U) // MUTANT@;s@#  define CD4053_CTL2     (2U) // RA2@#  define CD4053_CTL2     (1U) // MUTANT@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute CTL1/CTL2 pins swapped (mute applied to wrong control; mid-mute LATA pattern wrong, settles to same LATA so equiv/gpsim miss it)"
 "bypass_mcu_pic10f320.c	s@    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@    hw_x4053_ctl1_low(); // MUTANT: reassert ENGAGED at startup\\n    hw_x4053_ctl2_low();\\n\\n    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@	PIC_VARIANT=cd4053-mute test-actuation	FW cd4053-mute startup reasserts ENGAGED before MUTE, traversing INVALID/ENGAGED routing instead of remaining continuously in BYPASS"
+# --- firmware: real-HEX target aggregate (fault + lock-step + target I/O) --------
+# These deliberately overlap selected host-level faults: their purpose is to prove
+# the newer built-image aggregate independently kills each physical failure mode.
+"bypass_mcu_pic10f320.c	s@WPUA = (uint8_t)(1U << FOOTSW_PIN);@WPUA |= (uint8_t)(1U << FOOTSW_PIN);@	PIC_VARIANT=cd4053-simple test-target-gpsim	TARGET pull-up init regressed to read-modify-write; exact startup WPUA check catches retained RA0..RA2 latches"
+"bypass_mcu_pic10f320.c	s@wpua_latches == (uint8_t)(1U << FOOTSW_PIN)@0U != (wpua_latches \& (uint8_t)(1U << FOOTSW_PIN))@	PIC_VARIANT=cd4053-simple test-target-gpsim	TARGET exact WPUA guard weakened to RA3-present only; target fault injections catch extra output-pin latches"
+"bypass_mcu_pic10f320.c	s@return (0U == (TRISA & expected_mask));@return 1U;@	PIC_VARIANT=cd4053-simple test-target-gpsim	TARGET output-direction guard disabled; simulated-core TRISA injections no longer recover"
+"bypass_mcu_pic10f320.c	s@ANSELA & BYPASS_OUTPUT_DDR_MASK@ANSELA \& 0x01U@	PIC_VARIANT=cd4053-simple test-target-gpsim	TARGET ANSELA sanity mask narrowed to RA0; RA1/RA2 analog re-selection goes undetected"
+"bypass_mcu_pic10f320.c	s@    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@    hw_x4053_ctl1_low(); // MUTANT: reassert ENGAGED at startup\n    hw_x4053_ctl2_low();\n\n    hw_x4053_ctl1_high(); // ENGAGED -> MUTE@	PIC_VARIANT=cd4053-mute test-target-gpsim	TARGET mute startup reasserts ENGAGED before MUTE; physical startup transition trace catches it"
+"bypass_mcu_pic10f320.c	s@#  define CD4053_MUTE_DELAY_MS (5U)@#  define CD4053_MUTE_DELAY_MS (1U)@	PIC_VARIANT=cd4053-mute test-target-gpsim	TARGET mute window shortened below 5ms; cycle-exact target I/O timing catches it"
+"bypass_mcu_pic10f320.c	s@#  define TQ2_L2_5V_PULSE_MS (12U)@#  define TQ2_L2_5V_PULSE_MS (1U)@	PIC_VARIANT=tq2-relay test-target-gpsim	TARGET relay pulse shortened below the 4ms datasheet minimum; cycle-exact target I/O timing catches it"
+# --- firmware: long-window WDT liveness (real HEX in libgpsim soak) --------------
+"bypass_mcu_pic10f320.c	/void main(void)/,\$s@CLRWDT();@(void)0; /* MUTANT: no main-loop WDT pet */@	PIC_VARIANT=cd4053-simple PIC_SOAK_DURATION_MS=$PIC_SOAK_MUT_MS PIC_SOAK_LIVENESS_INTERVAL_MS=$PIC_SOAK_MUT_MS test-soak	SOAK main-loop WDT pet removed; reset notifier catches the un-pet watchdog within the short mutation window"
 # --- model: debounce logic (killed by the host / state-space tests) ---------------
 "test/model/bypass_pure.c	s@{ ++counter; }@{ --counter; }@	test-host	MODEL integrator increment becomes decrement"
 "test/model/bypass_pure.c	s@ctx.debounce_counter >= PRESSED_THRESH@ctx.debounce_counter > PRESSED_THRESH@	test-host	MODEL press threshold off-by-one (>= becomes >)"
@@ -130,7 +147,17 @@ copy_tree() {
     local dst="$1"
     mkdir -p "$dst"
     cp "$PROJ_DIR/Makefile" "$PROJ_DIR/bypass_mcu_pic10f320.c" "$dst/"
+    cp -a "$PROJ_DIR/scripts" "$dst/"
     cp -r "$PROJ_DIR/test" "$dst/"
+}
+
+mutation_target_available() {
+    case "$1" in
+        test-gpsim)              [ "$GPSIM_OK" -eq 1 ] ;;
+        *" test-target-gpsim") [ "$TARGET_OK" -eq 1 ] ;;
+        *" test-soak")         [ "$SOAK_OK" -eq 1 ] ;;
+        *)                       return 0 ;;
+    esac
 }
 
 # Baseline sanity: the unmutated tree must PASS the kill targets, otherwise a
@@ -158,18 +185,47 @@ for vt in "PIC_VARIANT=tq2-relay test-actuation" "PIC_VARIANT=cd4053-mute test-a
         base_fail=1
     fi
 done
-# gpsim baseline (skip cleanly if gpsim/XC8 absent -> gpsim mutants are skipped).
+# Dynamic baselines: skip-clean targets count as unavailable unless the required
+# tools exist and the unmutated target genuinely passes.
 GPSIM_OK=0
+TARGET_OK=0
+SOAK_OK=0
 if make -C "$BASE" test-gpsim >/dev/null 2>&1 && command -v "$GPSIM" >/dev/null 2>&1 \
    && { [ -x "$PIC_CC" ] || command -v "$PIC_CC" >/dev/null 2>&1; }; then
     GPSIM_OK=1; echo "baseline test-gpsim: PASS (gpsim mutants ENABLED)"
 else
     echo "test-gpsim baseline unavailable -> gpsim-killed mutants will be SKIPPED"
 fi
+if [ "$GPSIM_OK" -eq 1 ] \
+   && { [ -x "$PIC_SOAK_CXX" ] || command -v "$PIC_SOAK_CXX" >/dev/null 2>&1; } \
+   && [ -f "$PIC_SOAK_GPSIM_INC/sim_context.h" ] \
+   && command -v pkg-config >/dev/null 2>&1 \
+   && pkg-config --exists glib-2.0 2>/dev/null; then
+    if make -C "$BASE" test-target-variants >/dev/null 2>&1; then
+        TARGET_OK=1; echo "baseline test-target-variants: PASS (target mutants ENABLED)"
+    else
+        echo "test-target-variants baseline failed -> target mutants will be SKIPPED"
+    fi
+    if make -C "$BASE" PIC_VARIANT=cd4053-simple \
+            PIC_SOAK_DURATION_MS="$PIC_SOAK_MUT_MS" \
+            PIC_SOAK_LIVENESS_INTERVAL_MS="$PIC_SOAK_MUT_MS" \
+            test-soak >/dev/null 2>&1; then
+        SOAK_OK=1; echo "baseline short test-soak: PASS (WDT-liveness mutant ENABLED)"
+    else
+        echo "short test-soak baseline failed -> WDT-liveness mutant will be SKIPPED"
+    fi
+else
+    echo "gpsim-dev/glib/C++ stack unavailable -> target and soak mutants will be SKIPPED"
+fi
 rm -rf "$BASE"
 [ "$base_fail" -eq 0 ] || exit 2
-if [ "$GPSIM_OK" -eq 0 ] && [ "$MUTATION_ALLOW_SKIP" -ne 1 ]; then
-    echo "ERROR: complete mutation evaluation requires XC8 + gpsim; no mutant may be skipped." >&2
+required_skips=0
+for entry in "${MUTATIONS[@]}"; do
+    IFS=$'\t' read -r _file _sed target _desc <<< "$entry"
+    mutation_target_available "$target" || required_skips=$((required_skips + 1))
+done
+if [ "$required_skips" -ne 0 ] && [ "$MUTATION_ALLOW_SKIP" -ne 1 ]; then
+    echo "ERROR: $required_skips mutant(s) unavailable; complete mutation evaluation requires XC8, gpsim, and libgpsim." >&2
     echo "       Install the full toolchain, or set MUTATION_ALLOW_SKIP=1 for an explicitly partial local run." >&2
     exit 2
 fi
@@ -182,7 +238,7 @@ for entry in "${MUTATIONS[@]}"; do
     IFS=$'\t' read -r file sed_expr target desc <<< "$entry"
     idx=$((idx + 1))
 
-    if [ "$target" = "test-gpsim" ] && [ "$GPSIM_OK" -eq 0 ]; then
+    if ! mutation_target_available "$target"; then
         echo "[$idx] SKIP   ($target unavailable): $desc"; skipped=$((skipped + 1)); continue
     fi
 
