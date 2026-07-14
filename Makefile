@@ -188,7 +188,7 @@ FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $
 FAULT_INC      := -Itest/equiv -Itest/fault
 
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
-        test test-variants test-config test-gpsim \
+        test test-variants test-config test-gpsim test-gpsim-wrappers \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
@@ -312,6 +312,9 @@ test-config: all
 # latches ENGAGED, second press toggles back; (2) power-on-pressed -- a switch
 # held at boot must come up BYPASS and not engage until a genuine release + fresh
 # press. This is the closest thing to running on real silicon.
+test-gpsim-wrappers:
+	./test/test_gpsim_wrappers.sh
+
 test-gpsim: all
 	@if ! command -v $(GPSIM) >/dev/null 2>&1; then \
 		echo "gpsim not installed; skipping gpsim register-level test"; exit 0; \
@@ -831,7 +834,7 @@ test-mutation:
 		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" ./test/run_mutation_tests.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-soak-timing \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -913,6 +916,7 @@ help:
 	@echo "  test-variants   run \`make test\` for ALL variants ($(PIC_VARIANTS_ALL))"
 	@echo "  test-config     verify the CONFIG word emitted into the built HEX"
 	@echo "  test-gpsim      register-level functional test of the HEX in gpsim"
+	@echo "  test-gpsim-wrappers  fake-gpsim process failure/timeout checks (included in test)"
 	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"

@@ -39,9 +39,15 @@ EXP_ENGAGED_LATA="${2:-}"
 EXP_BYPASS_LATA="${3:-0x0}"
 
 GPSIM="${GPSIM:-gpsim}"
+GPSIM_TIMEOUT_SECONDS="${GPSIM_TIMEOUT_SECONDS:-60}"
 PROC="${PIC_GPSIM_PROC:-p10f320}"
 STC="$(dirname "$0")/footswitch_toggle.stc"
 
+if ! [[ "$GPSIM_TIMEOUT_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+		|| ! [[ "$GPSIM_TIMEOUT_SECONDS" =~ [1-9] ]]; then
+	echo "FAIL: GPSIM_TIMEOUT_SECONDS must be a positive decimal number of seconds"
+	exit 1
+fi
 if ! command -v "$GPSIM" >/dev/null 2>&1; then
     echo "gpsim not installed; skipping gpsim register-level test for $HEX"
     exit 0
@@ -55,7 +61,15 @@ if [ ! -f "$STC" ]; then
     exit 1
 fi
 
-out=$(timeout -s KILL 60 "$GPSIM" -i -p"$PROC" "$HEX" -c "$STC" </dev/null 2>&1)
+if out=$(timeout -s KILL "$GPSIM_TIMEOUT_SECONDS" \
+		"$GPSIM" -i -p"$PROC" "$HEX" -c "$STC" </dev/null 2>&1); then
+	:
+else
+	rc=$?
+	echo "FAIL: gpsim exited with status $rc for $HEX. Output was:"
+	printf '%s\n' "$out"
+	exit 1
+fi
 
 # Pull the value of register $2 at the checkpoint labelled $1 out of gpsim's
 # output (lines look like "lata = 0x3", possibly behind a "**gpsim> " prompt).

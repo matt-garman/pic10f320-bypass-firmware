@@ -26,6 +26,8 @@ file is the human-readable summary of *what changed*.
   drives both. Mirrors the parent project's fix.
 
 ### Changed
+- Made both gpsim functional wrappers reject simulator failures and timeouts even
+  when complete, otherwise-valid register snapshots were emitted first.
 - Made soak timing fail closed: native timing inputs now have compile-time type
   and range checks, release CLI durations reject malformed/overflowing values,
   and real releases cannot shorten the required 24-hour simulated soak.
