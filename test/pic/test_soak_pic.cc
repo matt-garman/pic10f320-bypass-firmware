@@ -94,6 +94,9 @@ static NullBuf g_nullbuf;
 #ifndef SOAK_PROGRESS_INTERVAL_MS
 #  define SOAK_PROGRESS_INTERVAL_MS 3600000u
 #endif
+
+#include "../soak_timing_config.h"
+
 // Safety cap: max run() resumes to cover one ms. A genuinely wedged core (PC
 // stuck, never reaching the cycle break) trips this instead of hanging forever.
 #define MAX_RESUMES_PER_MS 64
@@ -265,7 +268,8 @@ int main() {
     fflush(stdout);
 
     uint32_t rng = 0xDEADBEEFu;
-    uint32_t next_live = SOAK_LIVENESS_INTERVAL_MS, next_prog = SOAK_PROGRESS_INTERVAL_MS;
+    uint64_t next_live = SOAK_LIVENESS_INTERVAL_MS;
+    uint64_t next_prog = SOAK_PROGRESS_INTERVAL_MS;
     for (uint32_t t = 0; t < (uint32_t)SOAK_DURATION_MS; ++t) {
         footsw_set(((int)(xs(&rng) & 0xFFu)) < 128);
         soak_run_ms(1);

@@ -87,7 +87,10 @@ die()     { printf '%sFATAL%s %s\n' "$RED" "$RST" "$*" >&2; exit 1; }
 VERSION=""
 DRY_RUN=0
 ALLOW_DIRTY=0
-SOAK_DURATION_MS=86400000          # 24 h of SIMULATED MCU time (not wall-clock)
+MIN_RELEASE_SOAK_MS=86400000
+MAX_SOAK_DURATION_MS=4294967294    # uint32_t loop bound; preserve t + 1
+SOAK_DURATION_MS=$MIN_RELEASE_SOAK_MS
+SOAK_LIVENESS_INTERVAL_MS=60000
 JOBS=0                             # 0 => "all combos"
 OUTPUT_DIR=""
 
@@ -110,13 +113,32 @@ done
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
 	|| die "version '$VERSION' is not vX.Y.Z (optionally -suffix)"
 
+# The C++ soak loop uses a uint32_t millisecond counter. Validate before any
+# preconditions or builds so a bad value cannot wrap to a short/empty passing
+# run. Canonical decimal syntax also keeps later shell arithmetic unambiguous.
+[[ "$SOAK_DURATION_MS" =~ ^[1-9][0-9]*$ ]] \
+	|| die "--soak-duration-ms must be a positive base-10 integer"
+if [ "${#SOAK_DURATION_MS}" -gt "${#MAX_SOAK_DURATION_MS}" ] \
+		|| { [ "${#SOAK_DURATION_MS}" -eq "${#MAX_SOAK_DURATION_MS}" ] \
+			&& [[ "$SOAK_DURATION_MS" > "$MAX_SOAK_DURATION_MS" ]]; }; then
+	die "--soak-duration-ms must not exceed $MAX_SOAK_DURATION_MS"
+fi
+if [ "$DRY_RUN" -eq 0 ] && [ "$SOAK_DURATION_MS" -lt "$MIN_RELEASE_SOAK_MS" ]; then
+	die "real releases require --soak-duration-ms >= $MIN_RELEASE_SOAK_MS (24 h); use --dry-run for a short rehearsal"
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
 	# A dry run is an explicit rehearsal: shorten the soak so the whole pipeline
 	# finishes quickly, and tolerate an uncommitted tree (you typically rehearse
 	# BEFORE committing the release scaffolding itself).
-	[ "$SOAK_DURATION_MS" = "86400000" ] && SOAK_DURATION_MS=60000
+	[ "$SOAK_DURATION_MS" = "$MIN_RELEASE_SOAK_MS" ] && SOAK_DURATION_MS=60000
 	ALLOW_DIRTY=1
 fi
+# A short rehearsal must still execute at least one responsiveness round-trip.
+[ "$SOAK_DURATION_MS" -lt "$SOAK_LIVENESS_INTERVAL_MS" ] \
+	&& SOAK_LIVENESS_INTERVAL_MS=$SOAK_DURATION_MS
+[ "$DRY_RUN" -eq 1 ] \
+	&& warn "DRY RUN: short ${SOAK_DURATION_MS}ms soak (liveness interval ${SOAK_LIVENESS_INTERVAL_MS}ms); output is NOT a real release."
 
 # ----------------------------------------------------------------------------
 # Locate the repo and read the Makefile's single source of truth
@@ -169,8 +191,6 @@ fi
 # 0. PRECONDITIONS
 # ============================================================================
 section "0. preconditions"
-
-[ "$DRY_RUN" -eq 1 ] && warn "DRY RUN: short ${SOAK_DURATION_MS}ms soak; output is NOT a real release."
 
 # Clean working tree -- the provenance commit SHA must mean something. A real
 # release requires it; a rehearsal (--dry-run / --allow-dirty) only warns.
@@ -305,6 +325,7 @@ log "compiling soak binaries..."
 for v in $VARIANTS; do
 	name="$v"; bin="$SOAKDIR/test_soak_${v}"
 	make "$bin" PIC_VARIANT="$v" PIC_SOAK_BIN="$bin" PIC_SOAK_DURATION_MS="$SOAK_DURATION_MS" \
+		PIC_SOAK_LIVENESS_INTERVAL_MS="$SOAK_LIVENESS_INTERVAL_MS" \
 		>>"$EVID/soak-build.log" 2>&1 || die "failed to build soak binary for $name"
 	rundir="$SOAKDIR/run-$name"; mkdir -p "$rundir"
 	SOAK_NAMES+=("$name"); SOAK_BIN[$name]="$bin"

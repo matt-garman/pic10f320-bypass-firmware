@@ -26,6 +26,9 @@ file is the human-readable summary of *what changed*.
   drives both. Mirrors the parent project's fix.
 
 ### Changed
+- Made soak timing fail closed: native timing inputs now have compile-time type
+  and range checks, release CLI durations reject malformed/overflowing values,
+  and real releases cannot shorten the required 24-hour simulated soak.
 - Unified the two analog-switch variants onto a single control-pin polarity
   (BYPASS = MCU pin low, ENGAGE = high) and **removed** the
   `BYPASS_X4053_DIRECT_DRIVE` flag and the `tmux4053-simple` / `tmux4053-mute`

@@ -190,7 +190,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
         test test-variants test-config test-gpsim \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
-        test-cbmc test-equiv test-actuation test-soak test-fault-gpsim test-lockstep-gpsim \
+        test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
         test-fault test-fault-variants test-mutation coverage coverage-check coverage-check-fw \
         coverage-clean clean
@@ -591,6 +591,7 @@ PIC_SOAK_DURATION_MS ?= 3600000
 PIC_SOAK_LIVENESS_INTERVAL_MS ?= 60000
 PIC_SOAK_PROGRESS_INTERVAL_MS ?= 3600000
 PIC_SOAK_SRC = test/pic/test_soak_pic.cc
+PIC_SOAK_DEPS = $(PIC_SOAK_SRC) test/soak_timing_config.h
 PIC_SOAK_BIN = $(BUILD_DIR)/test_soak_pic
 
 # The single compile recipe, shared by the build-only rule and the run target
@@ -616,8 +617,13 @@ PIC_SOAK_COMPILE = $(PIC_SOAK_CXX) -std=c++17 -O2 $$(pkg-config --cflags glib-2.
 # runs them concurrently. The HEX it embeds is produced by `make all`, which the
 # release script runs first; this rule will not rebuild on a PIC_SOAK_DURATION_MS
 # change alone, so the release script always `make clean`s before a fresh build.
-$(PIC_SOAK_BIN): $(PIC_SOAK_SRC)
+$(PIC_SOAK_BIN): $(PIC_SOAK_DEPS)
 	$(PIC_SOAK_COMPILE)
+
+# Fast host-only boundary checks for the C/C++ soak timing contract and release
+# CLI. Included in `make test`; it does not build firmware or run gpsim.
+test-soak-timing:
+	HOSTCC="$(HOST_CC)" HOSTCXX="$(PIC_SOAK_CXX)" ./test/test_soak_timing.sh
 
 .PHONY: test-soak
 test-soak: all
@@ -825,7 +831,7 @@ test-mutation:
 		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" ./test/run_mutation_tests.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -920,6 +926,7 @@ help:
 	@echo "  test-fault-variants  run test-fault across all three output variants"
 	@echo "  test-soak       libgpsim soak: WDT liveness + responsiveness (standalone;"
 	@echo "                  needs gpsim-dev+libglib2.0-dev; PIC_VARIANT, PIC_SOAK_DURATION_MS)"
+	@echo "  test-soak-timing  host-only soak timing boundary checks (included in test)"
 	@echo "  test-fault-gpsim  inject TRISA/SFR/SRAM faults on the real HEX in gpsim; assert"
 	@echo "                  the variant-specific WDT-reset response (needs gpsim-dev)"
 	@echo "  test-lockstep-gpsim  lock-step the real HEX vs the model in gpsim: assert ctx_"
