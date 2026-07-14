@@ -14,6 +14,9 @@ file is the human-readable summary of *what changed*.
 ## [Unreleased]
 
 ### Fixed
+- **PIC image generation.** XC8 output must be structurally valid Intel HEX
+  before acceptance, and failed, interrupted, malformed, unverifiable, or
+  over-budget builds remove output files and symlinks from the shipping path.
 - **PIC target-fault completion.** Simulator progress failures now abort their
   current scenario instead of continuing with stale state, and each output
   variant must execute its exact expected number of checks before reporting PASS.

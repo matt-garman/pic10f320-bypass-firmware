@@ -42,6 +42,7 @@ tool-limited development host and is never used by CI or release validation.
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
 | Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (217 / 240 / 241 for cd4053-simple / -mute / tq2-relay). | XC8 |
+| Image generation | `test-pic-build` | Missing, partial, malformed, symlinked, over-budget, or interrupted XC8 output cannot be accepted; failed output files and symlinks are removed. | host fake-XC8 regression |
 | Bug-finding analysis | `analyze-cppcheck` | No cppcheck findings. | cppcheck (`pic8-enhanced`) |
 | MISRA-C:2012 | `analyze-misra` | Zero MISRA deviations (`../MISRA_COMPLIANCE.md`). | cppcheck + MISRA addon |
 | CONFIG word | `test-config` | The CONFIG word XC8 emitted matches design intent (`0x389E`). | host `gcc` |

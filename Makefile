@@ -38,6 +38,7 @@ PIC_DFP         ?= /opt/microchip/mdfp/PIC10-12Fxxx_DFP/1.9.189/xc8
 PIC_CHIP        ?= 10F320
 PIC_TAG         ?= pic10f320
 PIC_XTAL        ?= 2000000UL
+IHEX_VALIDATOR  ?= scripts/validate-ihex.sh
 
 # PIC10F320 device budget: 256 words flash / 64 B RAM.
 PIC_FLASH_WORDS ?= 256
@@ -102,6 +103,7 @@ CPPCHECK        ?= cppcheck
 GPSIM           ?= gpsim
 HOST_CC         ?= gcc
 GCOV            ?= gcov
+AWK             ?= awk
 MUTATION_ALLOW_SKIP ?= 0
 
 # gpsim processor name for the register-level functional test. The per-variant
@@ -188,7 +190,7 @@ FAULT_FW_DEFS  := -Wno-unknown-pragmas -Dmain=fw_main -D_XTAL_FREQ=$(PIC_XTAL) $
 FAULT_INC      := -Itest/equiv -Itest/fault
 
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
-        test test-variants test-config test-gpsim test-gpsim-wrappers \
+        test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
@@ -201,18 +203,43 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 # and the source path is made absolute. The program-word count is parsed from
 # XC8's "Program space used ... ( N )" line and compared to PIC_FLASH_WORDS.
 all: $(SRC)
+	@if [ -d "$(HEX)" ] && [ ! -L "$(HEX)" ]; then rmdir "$(HEX)"; else rm -f "$(HEX)"; fi
 	@if [ ! -x "$(PIC_CC)" ] && ! command -v $(PIC_CC) >/dev/null 2>&1; then \
 		echo "XC8 not found at $(PIC_CC) (override with PIC_CC=...)"; exit 1; \
 	fi
+	@if [ ! -x "$(IHEX_VALIDATOR)" ] && ! command -v $(IHEX_VALIDATOR) >/dev/null 2>&1; then \
+		echo "FAIL: Intel HEX validator not found at $(IHEX_VALIDATOR)"; exit 1; \
+	fi
 	@mkdir -p $(BUILD_DIR)
-	@rm -f $(HEX)
 	@echo "=== PIC10F320 build + flash-budget ($(PIC_FLASH_WORDS) words, variant $(PIC_VARIANT)) ==="
-	@out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
+	@hex="$(HEX)"; image_complete=0; \
+	remove_image() { \
+		if [ -d "$$hex" ] && [ ! -L "$$hex" ]; then rmdir "$$hex"; else rm -f "$$hex"; fi; \
+	}; \
+	cleanup_image() { \
+		rc=$$?; \
+		if [ $$rc -ne 0 ] || [ $$image_complete -ne 1 ]; then \
+			remove_image || rc=1; \
+			[ $$rc -ne 0 ] || rc=1; \
+		fi; \
+		trap - 0 1 2 15; exit $$rc; \
+	}; \
+	trap cleanup_image 0 1 2 15; \
+	export PIC_RECIPE_PID=$$$$; \
+	LC_ALL=C; export LC_ALL; \
+	budget="$(PIC_FLASH_WORDS)"; \
+	case "$$budget" in ''|*[!0-9]*) echo "FAIL: PIC_FLASH_WORDS must be a positive decimal integer"; exit 1 ;; esac; \
+	while [ "$${#budget}" -gt 1 ] && [ "$${budget#0}" != "$$budget" ]; do budget=$${budget#0}; done; \
+	if [ "$$budget" = 0 ]; then echo "FAIL: PIC_FLASH_WORDS must be a positive decimal integer"; exit 1; fi; \
+	out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
 		-o $(notdir $(HEX)) 2>&1` \
 		|| { printf '%s\n' "$$out"; echo "FAIL: did not compile for PIC10F320"; exit 1; }; \
-	if [ ! -s "$(HEX)" ]; then \
-		echo "FAIL: XC8 reported success but did not produce a nonempty $(HEX)"; \
+	if [ ! -s "$$hex" ]; then \
+		echo "FAIL: XC8 reported success but did not produce a nonempty $$hex"; \
 		printf '%s\n' "$$out"; exit 1; \
+	fi; \
+	if ! $(IHEX_VALIDATOR) "$$hex"; then \
+		echo "FAIL: XC8 produced an invalid Intel HEX image: $$hex"; exit 1; \
 	fi; \
 	dec=`printf '%s\n' "$$out" | grep -E 'Program space' \
 		| grep -oE '\( *[0-9]+ *\)' | head -1 | tr -d '() '`; \
@@ -220,32 +247,66 @@ all: $(SRC)
 		echo "FAIL: could not parse program-word count from XC8 output:"; \
 		printf '%s\n' "$$out"; exit 1; \
 	fi; \
-	pct=`awk -v u=$$dec -v t=$(PIC_FLASH_WORDS) 'BEGIN{printf "%.1f", u*100/t}'`; \
-	if [ $$dec -gt $(PIC_FLASH_WORDS) ]; then \
-		echo "FAIL: uses $$dec words ($${pct}%) -- exceeds $(PIC_FLASH_WORDS)"; exit 1; \
+	while [ "$${#dec}" -gt 1 ] && [ "$${dec#0}" != "$$dec" ]; do dec=$${dec#0}; done; \
+	over_budget=0; \
+	if [ "$${#dec}" -gt "$${#budget}" ]; then over_budget=1; \
+	elif [ "$${#dec}" -eq "$${#budget}" ]; then \
+		if $(AWK) -v a="x$$dec" -v b="x$$budget" 'BEGIN { exit !(a > b) }'; then \
+			over_budget=1; \
+		else \
+			cmp_rc=$$?; \
+			if [ $$cmp_rc -ne 1 ]; then echo "FAIL: could not compare program usage with flash budget"; exit 1; fi; \
+		fi; \
+	fi; \
+	pct=`$(AWK) -v u=$$dec -v t=$$budget 'BEGIN{printf "%.1f", u*100/t}'`; pct_rc=$$?; \
+	if [ $$pct_rc -ne 0 ] || [ -z "$$pct" ]; then echo "FAIL: could not calculate flash usage percentage"; exit 1; fi; \
+	if [ $$over_budget -eq 1 ]; then \
+		echo "FAIL: uses $$dec words ($${pct}%) -- exceeds $$budget"; exit 1; \
 	else \
-		echo "OK:   $(HEX) : $$dec words ($${pct}%) of $(PIC_FLASH_WORDS)"; \
-	fi
+		echo "OK:   $$hex : $$dec words ($${pct}%) of $$budget"; \
+	fi; \
+	image_complete=1
 
 # Print XC8's full memory-usage summary (program + data space).
 size: $(SRC)
+	@if [ -d "$(HEX)" ] && [ ! -L "$(HEX)" ]; then rmdir "$(HEX)"; else rm -f "$(HEX)"; fi
 	@if [ ! -x "$(PIC_CC)" ] && ! command -v $(PIC_CC) >/dev/null 2>&1; then \
 		echo "XC8 not found at $(PIC_CC) (override with PIC_CC=...)"; exit 1; \
 	fi
+	@if [ ! -x "$(IHEX_VALIDATOR)" ] && ! command -v $(IHEX_VALIDATOR) >/dev/null 2>&1; then \
+		echo "FAIL: Intel HEX validator not found at $(IHEX_VALIDATOR)"; exit 1; \
+	fi
 	@mkdir -p $(BUILD_DIR)
-	@rm -f $(HEX)
-	@out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
+	@hex="$(HEX)"; image_complete=0; \
+	remove_image() { \
+		if [ -d "$$hex" ] && [ ! -L "$$hex" ]; then rmdir "$$hex"; else rm -f "$$hex"; fi; \
+	}; \
+	cleanup_image() { \
+		rc=$$?; \
+		if [ $$rc -ne 0 ] || [ $$image_complete -ne 1 ]; then \
+			remove_image || rc=1; \
+			[ $$rc -ne 0 ] || rc=1; \
+		fi; \
+		trap - 0 1 2 15; exit $$rc; \
+	}; \
+	trap cleanup_image 0 1 2 15; \
+	export PIC_RECIPE_PID=$$$$; \
+	out=`cd $(BUILD_DIR) && $(PIC_CC) $(PIC_CFLAGS) $(CURDIR)/$(SRC) \
 		-o $(notdir $(HEX)) 2>&1` \
 		|| { printf '%s\n' "$$out"; echo "FAIL: did not compile for PIC10F320"; exit 1; }; \
-	if [ ! -s "$(HEX)" ]; then \
+	if [ ! -s "$$hex" ]; then \
 		echo "FAIL: XC8 reported success but did not produce a nonempty $(HEX)"; exit 1; \
+	fi; \
+	if ! $(IHEX_VALIDATOR) "$$hex"; then \
+		echo "FAIL: XC8 produced an invalid Intel HEX image: $$hex"; exit 1; \
 	fi; \
 	if ! printf '%s\n' "$$out" | grep -qE 'Program space'; then \
 		echo "FAIL: XC8 output contained no parseable program-space summary:"; \
 		printf '%s\n' "$$out"; exit 1; \
 	fi; \
 	summary=`printf '%s\n' "$$out" | grep -iE 'space|memory summary'`; \
-	printf '%s\n' "$$summary"
+	printf '%s\n' "$$summary"; \
+	image_complete=1
 
 # --- static analysis ---------------------------------------------------------
 analyze: analyze-cppcheck analyze-misra
@@ -833,8 +894,12 @@ test-mutation:
 	MUTATION_ALLOW_SKIP=$(MUTATION_ALLOW_SKIP) PIC_CC="$(PIC_CC)" \
 		PIC_DFP="$(PIC_DFP)" GPSIM="$(GPSIM)" ./test/run_mutation_tests.sh
 
+# Isolated fake-XC8 proof of fail-closed PIC image generation.
+test-pic-build:
+	./test/test_pic_build.sh
+
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-soak-timing \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -917,6 +982,7 @@ help:
 	@echo "  test-config     verify the CONFIG word emitted into the built HEX"
 	@echo "  test-gpsim      register-level functional test of the HEX in gpsim"
 	@echo "  test-gpsim-wrappers  fake-gpsim process failure/timeout checks (included in test)"
+	@echo "  test-pic-build  fake-XC8 image-generation and Intel-HEX checks (included in test)"
 	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
 	@echo "  test-symbolic   exhaustive single-step property proof of step()"
