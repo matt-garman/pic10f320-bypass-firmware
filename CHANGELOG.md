@@ -14,6 +14,9 @@ file is the human-readable summary of *what changed*.
 ## [Unreleased]
 
 ### Fixed
+- **Release reproduction instructions.** Fresh `build_pic/` images are now
+  checked through an exact-set verifier instead of running basename-only
+  `SHA256SUMS` from the repository root and missing the fresh files.
 - **PIC image generation.** XC8 output must be structurally valid Intel HEX
   before acceptance, and failed, interrupted, malformed, unverifiable, or
   over-budget builds remove output files and symlinks from the shipping path.

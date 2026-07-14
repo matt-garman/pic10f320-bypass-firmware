@@ -130,51 +130,25 @@ jobs:
         run: |
           set -euo pipefail
           dir='${{ steps.rel.outputs.dir }}'
-          fresh="$(mktemp -d)"
-          cp build_pic/*.hex "$fresh"/
           work="$(mktemp -d)"
 
-          # Build the expected release set from the tagged Makefile's single
-          # source of truth, then independently enumerate the committed files,
-          # checksum entries, and fresh build. Comparing all four filename sets
-          # rejects missing, extra, duplicate, and unchecksummed HEX assets.
+          # Independently derive the required build set from the tagged
+          # Makefile. The reusable verifier then checks that fresh, committed,
+          # and checksummed sets are exact and byte-identical.
           base="$(make -s print-FW_BASE)"
           pic_tag="$(make -s print-PIC_TAG)"
           for v in $(make -s print-PIC_VARIANTS_ALL); do
             printf '%s_%s_%s.hex\n' "$base" "$v" "$pic_tag"
           done | sort > "$work/expected.txt"
-
-          shopt -s nullglob
-          committed=( "$dir"/*.hex )
-          for f in "${committed[@]}"; do basename "$f"; done \
-            | sort > "$work/committed.txt"
-          fresh_files=( "$fresh"/*.hex )
-          for f in "${fresh_files[@]}"; do basename "$f"; done \
+          shopt -s nullglob dotglob
+          fresh=( build_pic/*.hex )
+          for f in "${fresh[@]}"; do basename "$f"; done \
             | sort > "$work/fresh.txt"
-          awk '
-            NF != 2 || $2 !~ /\.hex$/ {
-              print "malformed/non-HEX SHA256SUMS entry: " $0 > "/dev/stderr";
-              bad = 1; next
-            }
-            { print $2 }
-            END { exit bad }
-          ' "$dir/SHA256SUMS" | sort > "$work/checksummed.txt"
-
-          for set in committed checksummed fresh; do
-            echo "== release set: expected vs $set =="
-            if ! diff -u "$work/expected.txt" "$work/$set.txt"; then
-              echo "::error::$set HEX set differs from the tagged Makefile's expected variants"
-              exit 1
-            fi
-          done
-
-          echo "== committed images match committed SHA256SUMS =="
-          ( cd "$dir" && sha256sum -c SHA256SUMS )
-
-          echo "== freshly built images match committed SHA256SUMS =="
-          ( cd "$fresh" && sha256sum -c "${GITHUB_WORKSPACE}/$dir/SHA256SUMS" )
-
-          echo "REPRODUCED: expected, committed, checksummed, and fresh HEX sets are exact and byte-identical."
+          if ! diff -u "$work/expected.txt" "$work/fresh.txt"; then
+            echo "::error::fresh HEX set differs from the tagged Makefile's expected variants"
+            exit 1
+          fi
+          scripts/verify-release-images.sh "$dir" build_pic
 
       # --- re-run the gates on the clean runner -----------------------------
       - name: Re-run make test-variants

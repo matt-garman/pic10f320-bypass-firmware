@@ -60,12 +60,17 @@ pk2cmd -PPIC10F320 -Fbypass_mcu_tq2-relay_pic10f320.hex -M -Y -R
 
 ```
 git checkout v0.9.5
-# install the pinned toolchain (see TOOLCHAIN.adoc), then build every variant:
+release_dir="$PWD/release/v0.9.5"
+fresh="$(mktemp -d)"
+# install the pinned toolchain (see TOOLCHAIN.adoc), then:
 make clean
 make all PIC_VARIANT=cd4053-simple
 make all PIC_VARIANT=cd4053-mute
 make all PIC_VARIANT=tq2-relay
-sha256sum -c release/v0.9.5/SHA256SUMS
+cp build_pic/*.hex "$fresh"/
+(cd "$fresh" && sha256sum -c "$release_dir/SHA256SUMS")
 ```
-The tag-triggered CI (.github/workflows/release.yml) performs exactly this
-check on a clean runner and fails the release on any mismatch.
+The private directory contains only images copied from the clean fresh build, so
+this checks the new bytes rather than the committed release copies. Current and
+future releases additionally use `scripts/verify-release-images.sh` to enforce
+exact filename-set equality; tag-triggered CI runs that verifier on a clean runner.

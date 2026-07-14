@@ -89,16 +89,28 @@ pk2cmd -PPIC10F320 -Fbypass_mcu_cd4053-simple_pic10f320.hex -M -Y -R   # PICkit 
 ## Reproduce the images bit-for-bit
 
 ```sh
-git checkout vX.Y.Z
-# install the pinned toolchain (see TOOLCHAIN.adoc), then build every variant:
-make clean
-make all PIC_VARIANT=cd4053-simple
-make all PIC_VARIANT=cd4053-mute
-make all PIC_VARIANT=tq2-relay
-sha256sum -c release/vX.Y.Z/SHA256SUMS
+repo="$PWD"
+tmp="$(mktemp -d)"
+src="$tmp/source"
+git worktree add --detach "$src" vX.Y.Z
+(
+  cd "$src"
+  # install the tag's pinned toolchain (see TOOLCHAIN.adoc), then:
+  make clean
+  for v in $(make -s print-PIC_VARIANTS_ALL); do
+    make all PIC_VARIANT="$v"
+  done
+  "$repo/scripts/verify-release-images.sh" "release/vX.Y.Z" build_pic
+)
+git worktree remove "$src"
+rmdir "$tmp"
 ```
 
-A matching `sha256sum -c` proves your locally built images are identical to the
-published ones. (Byte-exact reproduction requires the *same* XC8 **and** DFP
+The verifier requires exact filename-set equality among committed images,
+`SHA256SUMS`, and a private snapshot of the fresh `build_pic/` images before
+checking both committed and fresh bytes. The detached worktree keeps the current
+verifier available even for older tags that predate it, and each tag supplies its
+own historical variant list. A pass therefore cannot accidentally recheck the
+committed release copies. Byte-exact reproduction requires the same XC8 and DFP
 versions recorded in the manifest; a different toolchain may produce functionally
-identical but not byte-identical images.)
+identical but not byte-identical images.

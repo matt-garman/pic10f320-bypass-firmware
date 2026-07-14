@@ -479,15 +479,20 @@ REL_BANNER=""
 	printf '\n'
 
 	printf '## Reproducing these images\n\n'
+	printf 'Check the images this tag *builds* against the committed checksums. Fresh\n'
+	printf 'HEX files land under `build_pic/`, not in this release directory, so the\n'
+	printf 'verifier snapshots and checks those fresh bytes and requires exact filename\n'
+	printf 'set equality with the committed images and `SHA256SUMS`.\n\n'
 	printf '```\n'
 	printf 'git checkout %s\n' "$VERSION"
-	printf '# install the pinned toolchain (see TOOLCHAIN.adoc), then build every variant:\n'
+	printf '# install the pinned toolchain (see TOOLCHAIN.adoc), then:\n'
 	printf 'make clean\n'
 	for v in $VARIANTS; do printf 'make all PIC_VARIANT=%s\n' "$v"; done
-	printf 'sha256sum -c release/%s/SHA256SUMS\n' "$VERSION"
+	printf 'scripts/verify-release-images.sh release/%s build_pic\n' "$VERSION"
 	printf '```\n'
-	printf 'The tag-triggered CI (.github/workflows/release.yml) performs exactly this\n'
-	printf 'check on a clean runner and fails the release on any mismatch.\n'
+	printf 'A passing verifier proves the committed files, checksum entries, and freshly\n'
+	printf 'built files are the same complete set with byte-identical contents. The\n'
+	printf 'tag-triggered CI runs this exact check on a clean runner.\n'
 } > "$OUTPUT_DIR/MANIFEST.md"
 ok "wrote MANIFEST.md"
 
