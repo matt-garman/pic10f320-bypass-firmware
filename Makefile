@@ -205,7 +205,7 @@ FAULT_INC      := -Itest/equiv -Itest/fault
 .NOTPARALLEL:
 
 .PHONY: all size analyze analyze-cppcheck analyze-misra \
-        test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix \
+        test test-variants test-config test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix test-lockstep-progress \
         test-host test-formal test-model-check test-symbolic test-symbolic-klee \
         test-cbmc test-equiv test-actuation test-soak test-soak-timing test-fault-gpsim test-lockstep-gpsim \
         test-io-gpsim test-target-gpsim test-target-variants \
@@ -932,6 +932,10 @@ test-release-images:
 test-target-matrix:
 	./test/test_target_matrix.sh
 
+# Compile the real lock-step driver against a fake core and inject progress stalls.
+test-lockstep-progress:
+	PIC_SOAK_CXX="$(PIC_SOAK_CXX)" ./test/test_lockstep_progress.sh
+
 # Internal probe used by test/test_make_serialization.sh. Independent top-level
 # makes must never execute this critical section concurrently.
 test-make-lock-probe:
@@ -950,7 +954,7 @@ test-build-serialization:
 	./test/test_make_serialization.sh
 
 # The full validation suite (everything that gates; mutation is separate).
-test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix test-build-serialization test-soak-timing \
+test: all analyze test-config test-host test-formal test-equiv test-actuation test-fault test-gpsim test-gpsim-wrappers test-pic-build test-release-images test-target-matrix test-lockstep-progress test-build-serialization test-soak-timing \
       coverage-check coverage-check-fw
 	@echo "=== all PIC10F320 validation complete (variant $(PIC_VARIANT)) ==="
 
@@ -1037,6 +1041,7 @@ help:
 	@echo "  test-pic-build  fake-XC8 image-generation and Intel-HEX checks (included in test)"
 	@echo "  test-release-images  exact committed/listed/fresh image verification (included in test)"
 	@echo "  test-target-matrix  fail-closed target-variant matrix checks (included in test)"
+	@echo "  test-lockstep-progress  lock-step simulator-stall propagation checks (included in test)"
 	@echo "  test-build-serialization  independent Make invocation lock regression"
 	@echo "  test-host       reference-model algorithm tests (host, variant-agnostic)"
 	@echo "  test-model-check exhaustive state-space proof of invariants"
