@@ -13,29 +13,12 @@ file is the human-readable summary of *what changed*.
 
 ## [Unreleased]
 
-### Fixed
-- **Release reproduction instructions.** Fresh `build_pic/` images are now
-  checked through an exact-set verifier instead of running basename-only
-  `SHA256SUMS` from the repository root and missing the fresh files.
-- **PIC image generation.** XC8 output must be structurally valid Intel HEX
-  before acceptance, and failed, interrupted, malformed, unverifiable, or
-  over-budget builds remove output files and symlinks from the shipping path.
-- **PIC target-fault completion.** Simulator progress failures now abort their
-  current scenario instead of continuing with stale state, and each output
-  variant must execute its exact expected number of checks before reporting PASS.
-- **PIC lock-step stimulus phase alignment.** The first footswitch input is now
-  applied from the identified loop-`CLRWDT` callback, guaranteeing the next
-  iteration samples it before the harness compares firmware and model state.
-- **Analog-switch control-pin drive polarity (CD4053 / TMUX4053).** The
-  `-DBYPASS_X4053_DIRECT_DRIVE` "direct-drive" polarity used by the former
-  `tmux4053-simple` / `tmux4053-mute` variants inverted the analog-switch control
-  pins relative to the CD4053 default. That was a latent polarity bug: it defeated
-  the pin-low fail-safe (with the control-pin pull-downs, an MCU-absent board would
-  settle its control pins HIGH and power up **engaged** instead of bypassed), and
-  it drove the switch the wrong way on a TMUX4053 board. The required MCU-pin
-  polarity is in fact **identical** for both boards — the CD4053's MOSFET inversion
-  and the TMUX4053 board's deliberately-swapped analog throws cancel — so one image
-  drives both. Mirrors the parent project's fix.
+### Added
+- Seven built-HEX target mutations cover startup, pull-up/direction/analog
+  faults, mute transitions, and pulse timing; an eighth removes the main-loop
+  WDT pet and proves the libgpsim soak detects the resulting reset.
+- Host-only regressions now exercise target-matrix validation and lock-step
+  simulator stalls without requiring XC8 or libgpsim.
 
 ### Changed
 - Serialized complete Make invocations per worktree and disabled internal
@@ -46,13 +29,34 @@ file is the human-readable summary of *what changed*.
 - Made soak timing fail closed: native timing inputs now have compile-time type
   and range checks, release CLI durations reject malformed/overflowing values,
   and real releases cannot shorten the required 24-hour simulated soak.
-- Unified the two analog-switch variants onto a single control-pin polarity
-  (BYPASS = MCU pin low, ENGAGE = high) and **removed** the
-  `BYPASS_X4053_DIRECT_DRIVE` flag and the `tmux4053-simple` / `tmux4053-mute`
-  build variants. The output scheme is now **three** variants — `cd4053-simple`,
-  `cd4053-mute`, `tq2-relay` — with each `cd4053-*` image serving both the CD4053
-  and the pin-compatible TMUX4053 board. Updated the actuation, gpsim, and mutation
-  tests, the Makefile variant machinery, and the documentation accordingly.
+
+### Fixed
+- **Release reproduction instructions.** Fresh `build_pic/` images are now
+  checked through an exact-set verifier instead of running basename-only
+  `SHA256SUMS` from the repository root and missing the fresh files.
+- **PIC image generation.** XC8 output must be structurally valid Intel HEX
+  before acceptance, and failed, interrupted, malformed, unverifiable, or
+  over-budget builds remove output files and symlinks from the shipping path.
+- **PIC target-fault completion.** Simulator progress failures abort immediately,
+  and each output variant must execute its exact expected checks before PASS.
+- **PIC lock-step stimulus phase alignment.** The first footswitch input is
+  applied from the identified loop-`CLRWDT` callback so the next iteration
+  samples it before firmware/model comparison.
+- Empty, duplicate, and unsupported target matrices fail before execution, and
+  lock-step progress stalls abort during settle, calibration, or completion
+  instead of looping on a frozen cycle counter.
+
+## [0.9.5] - 2026-07-10
+
+### Added
+- Built-HEX GPIO transition/timing validation (`test-io-gpsim`) requires exact
+  `TRISA=0x08`, checks physical `PORTA` against `LATA`, validates complete legal
+  startup/engage/bypass transitions, prohibits simultaneous relay coils, and
+  measures the 5 ms mute and 12 ms relay pulses.
+- Simulated-core TRISA fault coverage checks RA0/RA1 for every variant and RA2
+  as either a required output or the simple variant's negative control.
+
+### Changed
 - Made validation and release gates fail closed: successful XC8 invocations must
   produce the expected HEX and a parseable flash/memory summary; gcov must run,
   produce its annotation, and report a parseable percentage; mutation testing
@@ -64,18 +68,28 @@ file is the human-readable summary of *what changed*.
   The new `test-target-variants` aggregate requires explicit PASS markers, so
   missing development headers, symbols, or partial/skip-clean runs fail closed.
 
-### Added
-- Added seven built-HEX target mutations for startup, pull-up/direction/analog
-  fault, mute-transition, and pulse-timing coverage, plus a short libgpsim soak
-  mutation proving removal of the main-loop WDT pet is detected.
-- Built-HEX GPIO transition/timing validation (`test-io-gpsim`): requires exact
-  `TRISA=0x08`, checks physical `PORTA` follows `LATA`, asserts complete legal
-  startup/engage/bypass transition traces for every output stage, prohibits both
-  relay coils being energized together, and measures the 5 ms mute and 12 ms
-  relay pulses from XC8-generated simulator instruction cycles.
-- Simulated-core TRISA fault coverage: verifies startup direction configuration,
-  injects RA0/RA1 direction faults for every variant, and checks RA2 as either a
-  required output (mute/relay) or the simple variant's explicit negative control.
+### Fixed
+- Weak-pull-up validation now requires exact `WPUA=0x08`; extra pull-ups on
+  output pins are treated as configuration damage and force watchdog recovery.
+- Muted CD4053 startup asserts the bypass-side control before the mute delay, so
+  initialization no longer traverses ENGAGED before settling in BYPASS.
+- Renamed the I/O harness's local `Trace` type to avoid a libgpsim symbol clash.
+
+## [0.9.4] - 2026-07-10
+
+### Changed
+- Unified the two analog-switch variants onto one control-pin polarity
+  (BYPASS = MCU pin low, ENGAGE = high) and removed the
+  `BYPASS_X4053_DIRECT_DRIVE` flag and `tmux4053-simple` / `tmux4053-mute`
+  variants. The three-image matrix is now `cd4053-simple`, `cd4053-mute`, and
+  `tq2-relay`, with each `cd4053-*` image serving both switch boards.
+
+### Fixed
+- **Analog-switch control-pin drive polarity (CD4053 / TMUX4053).** The former
+  direct-drive variants defined BYPASS as pin high, so the pull-down-enforced
+  pin-low state of an MCU-absent board corresponded to ENGAGED instead of the
+  intended fail-safe BYPASS state. The CD4053 inverter and TMUX4053 board's
+  swapped analog throws already cancel, so both boards use the same MCU polarity.
 
 ## [0.9.3] - 2026-07-06
 
@@ -193,7 +207,9 @@ file is the human-readable summary of *what changed*.
   actuation-sequence checks, gpsim functional and libgpsim soak tests, a
   CONFIG-word check, mutation testing, and a clean MISRA-C:2012 posture.
 
-[Unreleased]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/matt-garman/pic10f320-bypass-firmware/compare/v0.9.0...v0.9.1
