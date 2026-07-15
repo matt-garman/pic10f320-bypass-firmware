@@ -45,7 +45,7 @@ wait rather than cross-linking variants or replacing an executing test binary.
 
 | Layer | Target | What it proves | Tool |
 | --- | --- | --- | --- |
-| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (217 / 240 / 241 for cd4053-simple / -mute / tq2-relay). | XC8 |
+| Build + flash budget | `all` | Compiles the selected variant for the PIC10F320 and fits in 256 words (219 / 240 / 243 for cd4053-simple / -mute / tq2-relay). | XC8 |
 | Image generation | `test-pic-build` | Missing, partial, malformed, symlinked, over-budget, or interrupted XC8 output cannot be accepted; failed output files and symlinks are removed. | host fake-XC8 regression |
 | Release reproduction | `test-release-images` | Committed, checksummed, and freshly built image sets must have exact filenames and byte-identical contents without reusing the committed directory as fresh evidence. | host filesystem regression |
 | Build serialization | `test-build-serialization` | Independent Make processes sharing one worktree execute their build/test recipes one at a time. | `flock` + host shell regression |
