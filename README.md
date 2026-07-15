@@ -42,8 +42,8 @@ This is intentionally a separate child project of
   into the firmware is instead **recovered here by proving the inlined firmware
   behaviourally identical to that same verified core** (see Validation).
 - Current footprint, per output stage (all fit the 256-word budget):
-  **cd4053-simple 217 (84.8%)**, **cd4053-with-mute 240 (93.8%)**,
-  **tq2-relay 241 (94.1%)**; 10 / 64 bytes RAM. Each `cd4053-*` image
+  **cd4053-simple 219 (85.5%)**, **cd4053-mute 240 (93.8%)**,
+  **tq2-relay 243 (94.9%)**; 10 / 64 bytes RAM. Each `cd4053-*` image
   drives both the CD4053 and the pin-compatible TMUX4053 board.
 
 **Validation:** because the firmware inlines its logic, it is
