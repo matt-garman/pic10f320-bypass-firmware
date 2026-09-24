@@ -1,3 +1,7 @@
+# OBSOLETE: Superceded by Parent Project
+
+This project has been integrated into the parent project [mcu-bypass-firmware](https://github.com/matt-garman/mcu-bypass-firmware).
+
 # PIC10F320 Bypass Firmware
 
 [![CI](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml/badge.svg)](https://github.com/matt-garman/pic10f320-bypass-firmware/actions/workflows/ci.yml)
